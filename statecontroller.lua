@@ -164,8 +164,8 @@ function StateController:determineSlaveState(Player, Observer, MobObject)
                 end
             else
                 if Utilities:arrayContains(Observer.aggro, mob.id) then
-                    for i,v in pairs(self.aggro) do
-                        if v.index == mob.index then self.aggro[i] = nil end
+                    for i,v in pairs(Observer.aggro) do
+                        if v.index == mob.index then Observer.aggro[i] = nil end
                     end
                 end
                 if Observer.mob_to_fight and Observer.mob_to_fight.index == mob.index then
