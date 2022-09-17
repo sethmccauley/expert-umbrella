@@ -161,9 +161,6 @@ function StateController:determineSlaveState(Player, Observer, MobObject)
                         notice(Utilities:secondsToReadable(os.clock())..' Master found target '..mob.name..' '..mob.index..'')
                         Observer:addToAggro(mob.id)
                     end
-                    -- if Observer.mob_to_fight and Observer.mob_to_fight.index ~= mob.index then
-                    --     Observer:setMobToFight(mob)
-                    -- end
                 end
             else
                 if Utilities:arrayContains(Observer.aggro, mob.id) then

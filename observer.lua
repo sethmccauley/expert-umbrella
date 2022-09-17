@@ -206,10 +206,6 @@ function ObserverObject:determineTarget(Actions, StateController)
 
     local hasCurrentTarget = self:hasCurrentTarget()
 
-    -- if StateController.role == 'slave' then
-    --     hasCurrentTarget = self:playersTarget(StateController.assist)
-    -- end
-
     -- No Target
     if hasCurrentTarget == 0 or next(self.mob_to_fight) == nil then
         if next(self.targets) == nil then
@@ -217,11 +213,8 @@ function ObserverObject:determineTarget(Actions, StateController)
         else
             self:setMobToFight(self:pickNearest(self.targets))
         end
-    else    -- Have Target
-        -- If I'm a slave, then my current target doesn't mean much.
-        -- if StateController.role == 'slave' then
-        --     if hasCurrentTarget == 0 then return end
-        -- end
+    else
+        -- Have Target
         -- Is my target my mob_to_fight and is it still valid?
         if self.mob_to_fight and self.mob_to_fight.index and self.mob_to_fight.index == hasCurrentTarget then
             -- notice(self.mob_to_fight.index..' '..hasCurrentTarget)
