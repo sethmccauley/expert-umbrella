@@ -205,6 +205,9 @@ function ObserverObject:determineTarget(Actions, StateController)
     self:validateTargetsTable()
 
     local hasCurrentTarget = self:hasCurrentTarget()
+    if StateController.role == 'slave' then
+        hasCurrentTarget = self:playersTarget(StateController.assist)
+    end
 
     -- No Target
     if hasCurrentTarget == 0 or next(self.mob_to_fight) == nil then
