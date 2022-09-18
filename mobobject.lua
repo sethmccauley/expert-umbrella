@@ -56,7 +56,7 @@ function MobObject:isValidTarget(player_mob)
     if not player_mob then return nil end
 
     self:updateDetails()
-    if self:validVitals() and self:validStatus() and self:differenceZ(player_mob) then
+    if self:validVitals() and self:validStatus() and self:differenceZ(player_mob) < 6 then
         self.valid_target = true
         return true
     end
