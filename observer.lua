@@ -223,7 +223,7 @@ function ObserverObject:determineTarget(Actions, StateController)
             -- notice(self.mob_to_fight.index..' '..hasCurrentTarget)
             -- notice('Claimed? '..tostring(self.mob_to_fight.obj:isAllianceClaimed(self.claim_ids)))
             -- Is it still a valid target?
-            if self.mob_to_fight.obj:isValidTarget(self.player.mob) and self.mob_to_fight.obj:isAllianceClaimed(self.claim_ids) then
+            if self.mob_to_fight.obj and self.mob_to_fight.obj:isValidTarget(self.player.mob) and self.mob_to_fight.obj:isAllianceClaimed(self.claim_ids) then
                 -- It's Still valid!
                 return
             else
