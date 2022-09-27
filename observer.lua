@@ -25,7 +25,7 @@ function ObserverObject:constructObserver(player_obj)
 
     self.nearest_target = nil
     self.mob_to_fight = T{}
-    self.target_update_time = 0
+    self.mtf_update_time = 0
 
     self.last_atk_pkt = 0
     self.last_atk_pkt_issued = nil
@@ -38,6 +38,9 @@ function ObserverObject:constructObserver(player_obj)
     self.last_busy_start = 0
     self.last_engage_time = 0
     self.force_unbusy_time = 0.5
+
+    self.attack_round_calc = 0
+    self.last_attack_swing = 0
 
     return self
 end
@@ -106,6 +109,9 @@ function ObserverObject:setTargetList(new_target_list)
 end
 function ObserverObject:setMobToFight(target_mob)
     -- notice('Set Mob To Fight: '..target_mob.name..' '..target_mob.index)
+    if os.clock() - self.mtf_update_time < 0.75 then return nil end
+
+    self.mtf_update_time = os.clock()
     self.mob_to_fight = target_mob
 end
 function ObserverObject:setLastSwitchRequest()
@@ -115,10 +121,19 @@ function ObserverObject:timeSinceLastSwitch()
     return (os.clock() - self.last_switch_pkt)
 end
 function ObserverObject:setLastEngageTime()
-    self.last_engage_time = 0
+    self.last_engage_time = os.clock()
 end
 function ObserverObject:timeSinceLastEngage()
     return (os.clock() - self.last_engage_time)
+end
+function ObserverObject:setLastAttackRoundTime()
+    self.last_attack_swing = os.clock()
+end
+function ObserverObject:timeSinceLastAttackRound()
+    return (os.clock() - self.last_attack_swing)
+end
+function ObserverObject:setAttackRoundCalcTime()
+    self.attack_round_calc = self:timeSinceLastAttackRound()
 end
 
 function ObserverObject:updateMobs(navigation_obj)
@@ -291,7 +306,7 @@ end
 function ObserverObject:timeSinceLastTarget()
     return os.clock() - self.last_target_pkt
 end
-function ObserverObject:timeSinceLastAttack()
+function ObserverObject:timeSinceLastAttackPkt()
     return os.clock() - self.last_atk_pkt
 end
 function ObserverObject:printQT()
@@ -393,7 +408,7 @@ function ObserverObject:isCloseEnough(mob_obj, player_mob, path_nodes, range_lim
             dist_target = self:distanceBetween(mob_obj.details, v)
         end
     end
-    
+
     if dist_target < range_limit then
         return true
     end
