@@ -58,7 +58,7 @@ Actions.bst_animations = T{
     ['Left-HandedYoko'] = {['Infected Leech'] = 7, ['Gloom Spray'] = 6},
 }
 Actions.trust_reference = {['AAEV'] = 'ArkEV', ['AATT'] = 'ArkTT', ['AAHM'] = 'ArkHM', ['AAGK'] = 'ArkGK', ['AAMR'] = 'ArkMR'}
-Actions.ja_castable_prefixes = T{'/jobability', '/ja'}
+Actions.ja_castable_prefixes = T{'/jobability', '/ja', '/pet'}
 Actions.ws_castable_prefixes = T{'/weaponskill','/ws'}
 Actions.magic_castable_prefixes = T{'/magic','/ma','/ninjutsu','/nin','/song','/sing'}
 Actions.action_types = T{'spells','job_abilities','weapon_skills'}
@@ -290,7 +290,7 @@ function Actions:inRange(full_ability)
 
     if action.prefix == '/pet' then
         local pet = windower.ffxi.get_mob_by_target('pet')
-        if pet then 
+        if pet then
             targ_obj = pet
         end
     end
