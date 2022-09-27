@@ -280,6 +280,7 @@ function Actions:inRange(full_ability)
 
     local self_target = self.player.mob
     local targ_obj = windower.ffxi.get_mob_by_target(full_ability.target)
+    local adjustment = 0
 
     local action = full_ability
     if full_ability.res then
@@ -292,6 +293,7 @@ function Actions:inRange(full_ability)
         local pet = windower.ffxi.get_mob_by_target('pet')
         if pet then
             targ_obj = pet
+            adjustment = -4
         end
     end
 
@@ -303,7 +305,7 @@ function Actions:inRange(full_ability)
             return true
         end
     end
-    local adjustment = 0
+
     if action.prefix == '/weaponskill' then
         adjustment = 1
     end
@@ -371,7 +373,7 @@ function Actions:isRecastReady(full_ability)
         if Utilities:arrayContains(Actions.magic_castable_prefixes, ability.prefix) and self.player:canCastSpells() then
             recast = windower.ffxi.get_spell_recasts()[ability.recast_id]
             return (recast == 0) and (self.player.vitals.mp >= ability.mp_cost)
-        elseif Utilities:arrayContains(Actions.ja_castable_prefixes, ability.prefix) and self.player:canJaWs() then 
+        elseif Utilities:arrayContains(Actions.ja_castable_prefixes, ability.prefix) and self.player:canJaWs() and ability.prefix ~= '/pet' then
             recast = windower.ffxi.get_ability_recasts()[ability.recast_id]
             -- Need Ninjutsu Shihei/Tool checks
             return (recast == 0) and (self.player.vitals.tp >= ability.tp_cost)
