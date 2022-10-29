@@ -472,7 +472,7 @@ function ObserverObject:notifyMobDeath(id,data,modified,injected,blocked, Action
             self.mob_to_fight = T{}
             coroutine.schedule(function() Actions:emptyOncePerCombat() end, 1)
         end
-        coroutine.schedule(function() self:forceUnbusy() end , 2)
+        coroutine.schedule(function() self:forceUnbusy() end , 1)
     end
 end
 function ObserverObject:watchResonation(id,data,modified,injected,blocked)

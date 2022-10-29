@@ -715,9 +715,9 @@ function Actions:handleActionNotification(act, player, observer)
                 end
 
                 if self.to_use[1] and (self.to_use[1].prefix == '/jobability' or self.to_use[1].prefix == '/weaponskill') then
-                    coroutine.schedule(function() observer:forceUnbusy() end, .4)
+                    coroutine.schedule(function() observer:forceUnbusy() end, 0.7)
                 else
-                    coroutine.schedule(function() observer:forceUnbusy() end, 2)
+                    coroutine.schedule(function() observer:forceUnbusy() end, 0.7)
                 end
             end
         end
@@ -725,7 +725,7 @@ function Actions:handleActionNotification(act, player, observer)
         if category == 8 then -- Interrupted Casting
             if param == 28787 then
                 notice('Interrupted.')
-                coroutine.schedule(function() observer:forceUnbusy() end, 2)
+                coroutine.schedule(function() observer:forceUnbusy() end, 1.7)
             end
         end
 
@@ -750,13 +750,18 @@ function Actions:handleActionNotification(act, player, observer)
         end
 
         if category == 3 then -- Finished Weapon Skill
-            if Utilities.res.weapon_skills[param] then
-                local ability = Utilities.res.weapon_skills[param]
+            if Utilities.res.weapon_skills[param] or Utilities.res.job_abilities[param] then
+
+                local ws = Utilities.res.weapon_skills[param] or nil
+                local ability = Utilities.res.job_abilities[param] or nil
+
                 if self.to_use and not para_flag then
                     for i,v in pairs(self.to_use) do
-                        if v.name:lower() == Utilities.res.weapon_skills[param].en:lower() then
+                        local ws_name = ws and ws.en:lower() or nil
+                        local abil_name = ability and ability.en:lower() or nil
+                        if v.name:lower() == ws_name or v.name:lower() == abil_name then
                             table.remove(self.to_use, i)
-                            coroutine.schedule(function() observer:forceUnbusy() end, 2)
+                            coroutine.schedule(function() observer:forceUnbusy() end, 1)
                             break
                         end
                     end
@@ -781,12 +786,12 @@ function Actions:handleActionNotification(act, player, observer)
                             break
                         end
                     end
-                    coroutine.schedule(function() observer:forceUnbusy() end, 3)
+                    coroutine.schedule(function() observer:forceUnbusy() end, 1.7)
                 end
             end
             if param == 0 then
                 self.to_use = T{}
-                coroutine.schedule(function() observer:forceUnbusy() end, 2)
+                coroutine.schedule(function() observer:forceUnbusy() end, 1.7)
             end
         end
     end
