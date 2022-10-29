@@ -509,8 +509,8 @@ function Actions:testConditions(ability, --[[optional]]source, --[[optional]]mob
         ['hppgt'] = function(value) return self.player.vitals.hpp > value end,
         ['mpplt'] = function(value) return self.player.vitals.mpp < value end,
         ['mppgt'] =  function(value) return self.player.vitals.mpp > value end,
-        ['mobhpplt'] = function(value, mob) return mob and mob.details and mob.details.hpp < value end,
-        ['mobhppgt'] = function(value, mob) return mob and mob.details and mob.details.hpp < value end,
+        ['mobhpplt'] = function(value) return mob_obj and mob_obj.details and mob_obj.details.hpp < value end,
+        ['mobhppgt'] = function(value) return mob_obj and mob_obj.details and mob_obj.details.hpp < value end,
         ['once'] = function()
                         local flag = false
                         if src and src == 'to_use' then
