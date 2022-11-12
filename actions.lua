@@ -63,6 +63,12 @@ Actions.ninja_tool_reference = T{
     ['Chonofuda'] = T{341, 342, 343, 344, 345, 346, 347, 348, 349, 350, 351, 352, 319, 508},
     ['Inoshishinofuda'] = T{320, 321, 322, 323, 324, 325, 326, 327, 328, 329, 330, 331, 332, 333, 334, 335, 336, 337},
 }
+Actions.ninja_tool_ids = T{
+    ['Inoshishinofuda'] = 2971,
+    ['Shihei'] = 1179,
+    ['Chonofuda'] = 2973,
+    ['Shikanofuda'] = 2972,
+}
 Actions.trust_reference = {['AAEV'] = 'ArkEV', ['AATT'] = 'ArkTT', ['AAHM'] = 'ArkHM', ['AAGK'] = 'ArkGK', ['AAMR'] = 'ArkMR'}
 Actions.ja_castable_prefixes = T{'/jobability', '/ja', '/pet'}
 Actions.ws_castable_prefixes = T{'/weaponskill','/ws'}
@@ -393,7 +399,7 @@ function Actions:isRecastReady(full_ability)
                         table.append(usable_tools, i)
                     end
                     for k,val in pairs(usable_tools) do
-                        if Utilities:haveItem(val) then
+                        if Actions.ninja_tool_ids[val] and Utilities:haveItem(Actions.ninja_tool_ids[val]) then
                             have_item = true
                         end
                     end
@@ -424,9 +430,9 @@ function Actions:isRecastReady(full_ability)
                 recast = 0
             end
             local resolved_item = Utilities.res.items:with('en',ability['name']:lower()) or Utilities.res.items:with('enl',ability['name']:lower()) or nil
-            if resolved_item and not self:haveItem(resolved_item.id) then
+            if resolved_item and not Utilities:haveItem(resolved_item.id) then
                 recast = 99
-            end
+            end 
             return recast == 0
         elseif ability.prefix == '/ra' and self.player:canJaWs() then
             recast = 0
