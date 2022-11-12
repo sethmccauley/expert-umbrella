@@ -380,7 +380,7 @@ function Actions:isRecastReady(full_ability)
         local recast = 99
         if Utilities:arrayContains(Actions.magic_castable_prefixes, ability.prefix) and self.player:canCastSpells() then
             recast = windower.ffxi.get_spell_recasts()[ability.recast_id]
-            if resolved_ability.type and resolved_ability.type == 'Ninjutsu' then
+            if ability.type and ability.type == 'Ninjutsu' then
                 local have_item = false
                 local usable_tools = {}
                 for i,v in pairs(Actions.ninja_tool_reference) do
@@ -389,7 +389,7 @@ function Actions:isRecastReady(full_ability)
                             
                     --     end
                     -- end
-                    if Utilities:arrayContains(v, resolved_ability.id) then
+                    if Utilities:arrayContains(v, ability.id) then
                         table.append(usable_tools, i)
                     end
                     for k,val in pairs(usable_tools) do
