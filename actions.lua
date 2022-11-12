@@ -101,7 +101,7 @@ function Actions:constructActions(action_list, Player)
 
     if action_list then self:setActionList(action_list) end
 
-	return self
+    return self
 end
 
 function Actions:setActionList(action_list)
@@ -194,6 +194,7 @@ function Actions:targetMob(mob_obj)
         ["Target"]=mob_obj.id})
     Actions.packets.inject(packet)
 end
+
 function Actions:attackMob(mob_obj)
     if not mob_obj and not mob_obj.id then return end
 
@@ -203,6 +204,7 @@ function Actions:attackMob(mob_obj)
         ["Target"]=mob_obj.id})
     Actions.packets.inject(packet)
 end
+
 function Actions:switchTarget(mob_obj)
     if not Actions.packets then return end
     if not mob_obj and not mob_obj.id then return end
@@ -213,6 +215,7 @@ function Actions:switchTarget(mob_obj)
         ["Target"]=mob_obj.id})
     Actions.packets.inject(packet)
 end
+
 function Actions:sendCommad(str)
     if not str then return end
     local cmd = str or nil
@@ -238,6 +241,7 @@ function Actions:handleState(StateController, observer_obj)
     end
     self:runActions(observer_obj)
 end
+
 function Actions:handleCombat(observer_obj)
     if observer_obj and observer_obj.mob_to_fight and not observer_obj.mob_to_fight.obj then
         return
@@ -268,6 +272,7 @@ function Actions:handleCombat(observer_obj)
         end
     end
 end
+
 function Actions:handleNonCombat(observer_obj)
     if self.player.status == 0 then
         if next(self.noncombat_actions) ~= nil then
@@ -384,11 +389,6 @@ function Actions:isRecastReady(full_ability)
                 local have_item = false
                 local usable_tools = {}
                 for i,v in pairs(Actions.ninja_tool_reference) do
-                    -- for key,value in pairs(v) do
-                    --     if value == resolved_ability.id then
-                            
-                    --     end
-                    -- end
                     if Utilities:arrayContains(v, ability.id) then
                         table.append(usable_tools, i)
                     end

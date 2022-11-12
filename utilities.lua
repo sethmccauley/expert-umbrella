@@ -61,7 +61,7 @@ Utilities._skillchains = L{
     [396] = 'Scission',
     [397] = 'Detonation',
     [398] = 'Impaction',
-	[767] = 'Radiance',
+    [767] = 'Radiance',
     [768] = 'Umbra',
     [769] = 'Radiance',
     [770] = 'Umbra',
@@ -70,7 +70,7 @@ Utilities._skillchains = L{
 function Utilities:constructUtilities() 
     local self = setmetatable({}, Utilities)
 
-	return self
+    return self
 end
 
 function Utilities:arrayContains(t, value)
@@ -107,17 +107,17 @@ function Utilities:round(num, dec)
 end
 
 function Utilities:haveItem(item)
-	local items = windower.ffxi.get_items()
-	local bags = {'inventory'}
+    local items = windower.ffxi.get_items()
+    local bags = {'inventory'}
 
-	for k, v in pairs(bags) do
+    for k, v in pairs(bags) do
         for index = 1, items["max_%s":format(v)] do
             if items[v][index].id == item then
                 return true
             end
         end
-	end
-	return false
+    end
+    return false
 end
 
 function Utilities:determineResonation(packet, mob_obj)

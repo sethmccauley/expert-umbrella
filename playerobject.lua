@@ -4,11 +4,11 @@ PlayerObject.__index = PlayerObject
 local Utilities = require('lang/utilities')
 
 function PlayerObject:constructPlayer() 
-	local player_obj = windower.ffxi.get_player()
-	if not player_obj then return nil end
+    local player_obj = windower.ffxi.get_player()
+    if not player_obj then return nil end
 
-	local player_mob = windower.ffxi.get_mob_by_id(player_obj.id)
-	if not player_mob then return nil end
+    local player_mob = windower.ffxi.get_mob_by_id(player_obj.id)
+    if not player_mob then return nil end
 
     local self = setmetatable({}, PlayerObject)
 
@@ -19,13 +19,13 @@ function PlayerObject:constructPlayer()
     self.status = player_mob.status
     self.vitals = player_obj.vitals
     self.buffs = player_obj.buffs
-	self.mob = player_mob
+    self.mob = player_mob
     self.is_trust = false
     self.details = player_obj
 
     self.last_update_time = 0
 
-	return self
+    return self
 end
 
 function PlayerObject:constructPartyPC(member)
@@ -39,9 +39,9 @@ function PlayerObject:constructPartyPC(member)
     self.self = false
     self.status = member.mob.status
     self.is_trust = (member.mob.spawn_type == 14)
-	self.mob = member.mob
+    self.mob = member.mob
 
-	return self
+    return self
 end
 
 function PlayerObject:setLastUpdateTime()
@@ -53,8 +53,8 @@ function PlayerObject:update()
 
     if os.clock() - self.last_update_time < 0.1 then return nil end
 
-	local player_mob = windower.ffxi.get_mob_by_id(self.id)
-	if not player_mob then return nil end
+    local player_mob = windower.ffxi.get_mob_by_id(self.id)
+    if not player_mob then return nil end
 
     if self.self then
         local player_obj = windower.ffxi.get_player()
