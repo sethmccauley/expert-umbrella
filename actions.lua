@@ -57,6 +57,12 @@ Actions.bst_animations = T{
     ['MosquitoFamilia'] = {['Infected Leech'] = 7, ['Gloom Spray'] = 6},
     ['Left-HandedYoko'] = {['Infected Leech'] = 7, ['Gloom Spray'] = 6},
 }
+Actions.ninja_tool_reference = T{
+    ['Shihei'] = T{338, 339, 340},
+    ['Shikanofuda'] = T{338, 339, 340, 353, 354, 318, 505, 506, 507, 508, 509, 510,},
+    ['Chonofuda'] = T{341, 342, 343, 344, 345, 346, 347, 348, 349, 350, 351, 352, 319, 508},
+    ['Inoshishinofuda'] = T{320, 321, 322, 323, 324, 325, 326, 327, 328, 329, 330, 331, 332, 333, 334, 335, 336, 337},
+}
 Actions.trust_reference = {['AAEV'] = 'ArkEV', ['AATT'] = 'ArkTT', ['AAHM'] = 'ArkHM', ['AAGK'] = 'ArkGK', ['AAMR'] = 'ArkMR'}
 Actions.ja_castable_prefixes = T{'/jobability', '/ja', '/pet'}
 Actions.ws_castable_prefixes = T{'/weaponskill','/ws'}
@@ -314,6 +320,7 @@ function Actions:inRange(full_ability)
     end
     return false
 end
+
 function Actions:canUse(resolved_ability)
     if not self.player or not resolved_ability then return false end
 
@@ -349,6 +356,7 @@ function Actions:canUse(resolved_ability)
     end
     return false
 end
+
 function Actions:isRecastReady(full_ability)
     if not self.player or not full_ability then return false end
 
@@ -372,10 +380,29 @@ function Actions:isRecastReady(full_ability)
         local recast = 99
         if Utilities:arrayContains(Actions.magic_castable_prefixes, ability.prefix) and self.player:canCastSpells() then
             recast = windower.ffxi.get_spell_recasts()[ability.recast_id]
+            if resolved_ability.type and resolved_ability.type == 'Ninjutsu' then
+                local have_item = false
+                local usable_tools = {}
+                for i,v in pairs(Actions.ninja_tool_reference) do
+                    -- for key,value in pairs(v) do
+                    --     if value == resolved_ability.id then
+                            
+                    --     end
+                    -- end
+                    if Utilities:arrayContains(v, resolved_ability.id) then
+                        table.append(usable_tools, i)
+                    end
+                    for k,val in pairs(usable_tools) do
+                        if Utilities:haveItem(val) then
+                            have_item = true
+                        end
+                    end
+                end
+                return (recast == 0) and have_item
+            end
             return (recast == 0) and (self.player.vitals.mp >= ability.mp_cost)
         elseif Utilities:arrayContains(Actions.ja_castable_prefixes, ability.prefix) and self.player:canJaWs() and ability.prefix ~= '/pet' then
             recast = windower.ffxi.get_ability_recasts()[ability.recast_id]
-            -- Need Ninjutsu Shihei/Tool checks
             return (recast == 0) and (self.player.vitals.tp >= ability.tp_cost)
         elseif Utilities:arrayContains(Actions.ws_castable_prefixes, ability.prefix) and self.player:canJaWs() then
             return (self.player.status == 1) and (self.player.vitals.tp > 999)
@@ -408,6 +435,7 @@ function Actions:isRecastReady(full_ability)
     end
     return false
 end
+
 function Actions:resolveAbility(raw_ability)
     if not raw_ability then return false end
 
@@ -488,6 +516,7 @@ function Actions:testActions(list, ltype, mob)
         end
     end
 end
+
 function Actions:testConditions(ability, --[[optional]]source, --[[optional]]mob_obj)
 
     if not ability.conditions then return true end
@@ -523,7 +552,6 @@ function Actions:testConditions(ability, --[[optional]]source, --[[optional]]mob
                     end,
         ['absent'] = function(value)
                         if value:lower() == 'pet' then return windower.ffxi.get_mob_by_target('pet') == nil end
-                        -- notice(source..' '..action.name..' absent check for : '..value..' '..tostring(not self.player:hasBuff(value:lower())))
                         return not self.player:hasBuff(value:lower()) end,
         ['present'] = function(value)
                         if value:lower() == 'pet' then return windower.ffxi.get_mob_by_target('pet') ~= nil end
@@ -569,6 +597,7 @@ function Actions:testConditions(ability, --[[optional]]source, --[[optional]]mob
     end
     return decision
 end
+
 function Actions:addToUse(action, list_type) -- Unecessary, as most things.
     if not Utilities:arrayContains(self.to_use, action.name) then
         if Utilities:arrayContains(action, 'once') then
@@ -585,6 +614,7 @@ function Actions:addToUse(action, list_type) -- Unecessary, as most things.
         table.append(self.to_use, action)
     end
 end
+
 function Actions:runActions(observer_obj)
     self.player:update()
 
@@ -651,6 +681,7 @@ function Actions:runActions(observer_obj)
         end
     end
 end
+
 function Actions:sendCommand(str)
     local cmd = str or nil
     if cmd then
@@ -664,18 +695,23 @@ function Actions:emptyOncePerTables()
     self:emptyOncePerPreCombat()
     self:emptyOncePerPostCombat()
 end
+
 function Actions:emptyOncePerCombat()
     self.once_per_combat = T{}
 end
+
 function Actions:emptyOncePerPreCombat()
     self.once_per_precombat = T{}
 end
+
 function Actions:emptyOncePerPostCombat()
     self.once_per_postcombat = T{}
 end
+
 function Actions:emptyOncePerNonCombat()
     self.once_per_noncombat = T{}
 end
+
 function Actions:emptyToUse()
     self.to_use = T{}
 end
