@@ -586,7 +586,8 @@ function Actions:testConditions(ability, --[[optional]]source, --[[optional]]mob
                                 if mob_obj and mob_obj.resonating_window == nil then return true end
                                 local time_left = mob_obj.resonating_window - (os.clock() - mob_obj.resonating_start_time)
                                 return (time_left <= 0)
-                            end
+                            end,
+        ['resonatingstepgt'] = function(value) return mob_obj.resonating_step > value end
     }
 
     for i,v in pairs(conditions) do

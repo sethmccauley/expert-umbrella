@@ -97,6 +97,9 @@ end
 function ObserverObject:setTargetPkt()
     self.last_target_pkt = os.clock()
 end
+function ObserverObject:setAggroEmpty()
+    self.aggro = T{}
+end
 function ObserverObject:setTargetList(new_target_list)
     if type(new_target_list) ~= 'table' then return end
 
