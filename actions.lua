@@ -260,14 +260,14 @@ function Actions:handleCombat(observer_obj)
         if self.player.target_index == nil and observer_obj:timeSinceLastTarget() > 5 then
             observer_obj:setTargetPkt()
             self:targetMob(mob)
-            notice(Utilities:secondsToReadable(observer_obj.last_target_pkt)..' Target invoked '..mob.name..' '..mob.index..'')
+            notice(Utilities:printTime()..' Target invoked '..mob.name..' '..mob.index..'')
         end
         Actions:emptyOncePerTables()
 
         if (mob.details.distance:sqrt() < (observer_obj.engage_distance or 5)) and observer_obj:timeSinceLastAttackPkt() > 4 and observer_obj:timeSinceLastAttackRound() > observer_obj.attack_round_calc then
             observer_obj:setAtkPkt()
             self:attackMob(mob)
-            notice(Utilities:secondsToReadable(observer_obj.last_atk_pkt)..' Attack invoked '..mob.name..' '..mob.index..'')
+            notice(Utilities:printTime()..' Attack invoked '..mob.name..' '..mob.index..'')
 
             observer_obj.is_busy = true
             coroutine.schedule(function() observer_obj:forceUnbusy() end, 0.5)

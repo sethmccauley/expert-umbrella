@@ -177,4 +177,9 @@ function Utilities:secondsToReadable(seconds)
     end
 end
 
+function Utilities:printTime(seconds)
+    local date = os.date("*t", seconds)
+    return tostring('['..date.hour..':'..date.min..':'..date.sec..']')
+end
+
 return Utilities

@@ -117,7 +117,7 @@ function StateController:determineState(Player, Observer, Actions, Navigation, M
 
     -- This needs adjustment to include if the current target is an ignorable mob
     if self.state == 'postcombat' or (self.state == 'combat' and next(Observer.aggro) == nil and next(Observer.targets) == nil and next(Observer.mob_to_fight) == nil) then
-        notice(Utilities:secondsToReadable(os.clock())..' All targets dead.')
+        notice(Utilities:printTime()..' All targets dead.')
         Actions:emptyToUse()
         self:setState('idle')
         return
@@ -158,7 +158,7 @@ function StateController:determineSlaveState(Player, Observer, MobObject)
             if mob:isValidTarget(Player.mob) and mob:isAllianceClaimed(Observer.claim_ids) then
                 if assist_status == 1 then
                     if not Utilities:arrayContains(Observer.aggro, mob.id) then
-                        notice(Utilities:secondsToReadable(os.clock())..' Master found target '..mob.name..' '..mob.index..'')
+                        notice(Utilities:printTime()..' Master found target '..mob.name..' '..mob.index..'')
                         Observer:addToAggro(mob.id)
                     end
                 end
