@@ -143,7 +143,7 @@ function StateController:determineState(Player, Observer, Actions, Navigation, M
 
 end
 
-function StateController:determineSlaveState(Player, Observer, MobObject)
+function StateController:determineSlaveState(Player, Observer, MobObject) -- Unused
     if self.assist == nil and (os.clock() - self.last_assist_check) < 0.5 then return end
 
     if Observer:inParty(self.assist) then

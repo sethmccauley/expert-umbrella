@@ -137,6 +137,9 @@ function ObserverObject:timeSinceLastAttackRound()
 end
 function ObserverObject:setAttackRoundCalcTime()
     self.attack_round_calc = self:timeSinceLastAttackRound()
+    if self.attack_round_calc > 10 then
+        self.attack_round_calc = 0
+    end
 end
 
 function ObserverObject:updateMobs(navigation_obj)
@@ -221,54 +224,92 @@ function ObserverObject:determineTarget(Actions, StateController)
 
     self:validateAggroTable()
     self:validateTargetsTable()
+    self:validateMobToFight()
 
     local hasCurrentTarget = self:hasCurrentTarget()
+    -- Slave Targeting Considerations
     if StateController.role == 'slave' then
-        hasCurrentTarget = self:playersTarget(StateController.assist)
+        if StateController.assist == nil then return end
+        if (os.clock() - StateController.last_assist_check) < 0.5 then return end
+
+        if self:inParty(StateController.assist) then
+            hasCurrentTarget = self:playersTarget(StateController.assist)
+            local assist_status = self:playersStatus(StateController.assist)
+
+            if hasCurrentTarget and hasCurrentTarget ~= 0 then
+                if assist_status == 1 then
+                    local potential_target = MobObject:constructMob(hasCurrentTarget)
+                    if potential_target:isValidTarget(self.player.mob) and potential_target:isAllianceClaimed(self.claim_ids) then
+                        if not Utilities:arrayContains(self.aggro, hasCurrentTarget) then
+                            -- notice(Utilities:printTime()..' Master found target '..hasCurrentTarget..' adding to aggro table.')
+                            self:addToAggro(potential_target.id)
+                        end
+                    else
+                        if Utilities:arrayContains(self.aggro, potential_target.id) then
+                            for i,v in pairs(self.aggro) do
+                                if v.index == potential_target.index then self.aggro[i] = nil end
+                            end
+                        end
+                        if self.mob_to_fight and self.mob_to_fight.index == potential_target.index then
+                            -- notice(Utilities:printTime()..' clearing Mob to fight due to invalid mob')
+                            self:setMobToFight(T{})
+                        end
+                    end
+                else
+                    if next(self.aggro) ~= nil then
+                        -- notice(Utilities:printTime()..' clearing aggro as assist target is idle')
+                        self:setAggroEmpty()
+                    end
+                    if next(self.mob_to_fight) ~= nil then
+                        -- notice(Utilities:printTime()..' clearing mob to fight as assist target is idle')
+                        self:setMobToFight(T{})
+                    end
+                end
+            end
+        end
+        StateController:setLastAssistCheckTime()
     end
 
-    -- No Target
-    if hasCurrentTarget == 0 or next(self.mob_to_fight) == nil then
+    -- MTF is Empty
+    if next(self.mob_to_fight) == nil then
+        if hasCurrentTarget ~= 0 then
+            if self.player.status == 1 then
+                local possible_target = MobObject:constructMob(hasCurrentTarget)
+                if possible_target and possible_target:isValidTarget(self.player.mob) and possible_target:isAllianceClaimed(self.claim_ids) then
+                    -- notice(Utilities:printTime()..' setting mob to fight NIL MTF, VALID CT, Engaged')
+                    self:setMobToFight({['name'] = possible_target.name, ['index'] = possible_target.index, ['obj'] = possible_target})
+                    return
+                end
+            end
+        end
+
         if next(self.targets) == nil then
-            self:setMobToFight(self:pickNearest(self.aggro))
+            if next(self.aggro) ~= nil then
+                -- notice(Utilities:printTime()..' setting mob to fight from nearest aggro table')
+                self:setMobToFight(self:pickNearest(self.aggro))
+            end
         else
+            -- notice(Utilities:printTime()..' setting mob to fight from nearest target table')
             self:setMobToFight(self:pickNearest(self.targets))
         end
     else
-        -- Have Target
-        -- Is my target my mob_to_fight and is it still valid?
-        if self.mob_to_fight and self.mob_to_fight.index and self.mob_to_fight.index == hasCurrentTarget then
-            -- notice(self.mob_to_fight.index..' '..hasCurrentTarget)
-            -- notice('Claimed? '..tostring(self.mob_to_fight.obj:isAllianceClaimed(self.claim_ids)))
-            -- Is it still a valid target?
-            if self.mob_to_fight.obj and self.mob_to_fight.obj:isValidTarget(self.player.mob) and self.mob_to_fight.obj:isAllianceClaimed(self.claim_ids) then
-                -- It's Still valid!
-                return
-            else
-                -- My Mob to fight is my current Target but it is now not valid.
-                notice('Setting mob to fight to empty.')
-                self:setMobToFight(T{})
-            end
-        elseif self.mob_to_fight and self.mob_to_fight.index and self.mob_to_fight.index ~= hasCurrentTarget then
-            -- My current target is not my mob_to_fight
-            if self.mob_to_fight.obj:isValidTarget(self.player.mob) and self.mob_to_fight.obj:isAllianceClaimed(self.claim_ids) then
-                -- My mob_to_fight is still valid, why do I have a different current target?
-                -- Need to send a switch target command
-                if (os.clock() - self.last_switch_pkt) > 4 then
-                    notice('Time since last switch invoked: '..(os.clock() - self.last_switch_pkt))
-                    notice('Switch Target To: '..self.mob_to_fight.index)
-                    self:setLastSwitchRequest()
-                    Actions:switchTarget(self.mob_to_fight.obj)
-                end
-            else
-                -- My mob_to_fight is not valid, I have a different target, let's change targets
-                local possible_target = MobObject:constructMob(hasCurrentTarget)
-                if possible_target and possible_target:isValidTarget(self.player.mob) and possible_target:isAllianceClaimed(self.claim_ids) then
-                    notice('Not Valid, pls change')
-                    self:setMobToFight(possible_target)
+    -- MTF is Populated
+        if hasCurrentTarget ~= 0 then
+            -- MTF ~= CT
+            if self.mob_to_fight and self.mob_to_fight.index and self.mob_to_fight.index ~= hasCurrentTarget then
+                if self.player.status == 1 then
+                    local possible_target = MobObject:constructMob(hasCurrentTarget)
+                    if possible_target and possible_target:isValidTarget(self.player.mob) and possible_target:isAllianceClaimed(self.claim_ids) then
+                        if verbose then
+                            -- notice(Utilities:printTime()..' setting mob to fight MTF ~= CT, VALID CT, Engaged')
+                            notice(T(possible_target):tovstring())
+                        end
+                        self:setMobToFight({['name'] = possible_target.name, ['index'] = possible_target.index, ['obj'] = possible_target})
+                    end
                 end
             end
         end
+
     end
 end
 function ObserverObject:hasCurrentTarget()
@@ -391,6 +432,13 @@ function ObserverObject:validateAggroTable()
         end
     end
 end
+function ObserverObject:validateMobToFight()
+    if table.containskey(self.mob_to_fight, 'obj') then
+        if not self.mob_to_fight.obj:isValidTarget(self.player.mob) or not self.mob_to_fight.obj:isAllianceClaimed(self.claim_ids) then
+            self:setMobToFight(T{})
+        end
+    end
+end
 
 function ObserverObject:isCloseEnough(mob_obj, player_mob, path_nodes, range_limit)
     if not mob_obj or not player_mob then return nil end
@@ -503,12 +551,13 @@ function ObserverObject:playersTarget(name)
     if name == nil then return nil end
 	local name = name
 	local party = windower.ffxi.get_party()
+    local my_zone = windower.ffxi.get_info().zone
 
     for i = 0,5 do
         local member = party['p'..i]
         if member ~= nil then
-            if member.name:lower() == name:lower() then
-                if member and member.mob and member.mob ~= nil and member.mob.target_index ~= 0 or member.mob.target_index ~= nil then
+            if member.name:lower() == name:lower() and member.zone == my_zone then
+                if member and member.mob and (member.mob ~= nil) and (member.mob.target_index ~= nil or member.mob.target_index ~= 0) then
                     return windower.ffxi.get_mob_by_index(member.mob.target_index) and windower.ffxi.get_mob_by_index(member.mob.target_index).index
                 end
             end

@@ -264,7 +264,11 @@ function Actions:handleCombat(observer_obj)
         end
         Actions:emptyOncePerTables()
 
-        if (mob.details.distance:sqrt() < (observer_obj.engage_distance or 5)) and observer_obj:timeSinceLastAttackPkt() > 4 and observer_obj:timeSinceLastAttackRound() > observer_obj.attack_round_calc then
+
+        -- notice('Time since last attack command: '..observer_obj:timeSinceLastAttackPkt().. ' > 4')
+        -- notice('Time since last attack round: '..observer_obj:timeSinceLastAttackRound().. ' > '..observer_obj.attack_round_calc)
+
+        if (mob.details.distance:sqrt() < (self.engage_distance or 5)) and observer_obj:timeSinceLastAttackPkt() > 4 and observer_obj:timeSinceLastAttackRound() > observer_obj.attack_round_calc then
             observer_obj:setAtkPkt()
             self:attackMob(mob)
             notice(Utilities:printTime()..' Attack invoked '..mob.name..' '..mob.index..'')
@@ -723,8 +727,9 @@ function Actions:emptyToUse()
     self.to_use = T{}
 end
 
-function Actions:handleActionNotification(act, player, observer)
-    local actor = windower.ffxi.get_mob_by_id(act.actor_id)	
+function Actions:handleActionNotification(act, player, observer, statecontroller)
+    local actor = windower.ffxi.get_mob_by_id(act.actor_id)
+    local role = statecontroller.role or 'master'
 
     if actor and actor.id == self.player.id then
         local target_count = act.target_count
@@ -840,21 +845,25 @@ function Actions:handleActionNotification(act, player, observer)
         end
     end
 
-    if actor and actor.id ~= self.id then
+    if actor and actor.id ~= self.id and role == 'master' then
         local category = act.category
         local param = act.param
         local recast = act.recast
         local targets = T(act.targets)
         local party_ids = observer:setPartyClaimIds()
 
-        if category == 1 then -- Melee attack against Player
-            if targets:with('id', self.player.id) then
-                observer:addToAggro(actor.id)
+        if category == 1 then -- Melee attack against Player or Party
+            for _,v in pairs(party_ids) do
+                if targets:with('id', v) then
+                    observer:addToAggro(actor.id)
+                end
             end
         end
-        if category == 11 then -- Matamata Cleave/Type Attack
-            if targets:with('id', self.player.id) and not Utilities:arrayContains(party_ids, actor.id) then
-                observer:addToAggro(actor.id)
+        if category == 11 and not Utilities:arrayContains(party_ids, actor.id) then -- Matamata Cleave/Type Attack
+            for _,v in pairs(party_ids) do
+                if targets:with('id', v) then
+                    observer:addToAggro(actor.id)
+                end
             end
         end
     end

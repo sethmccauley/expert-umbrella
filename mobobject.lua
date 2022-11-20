@@ -32,7 +32,7 @@ end
 function MobObject:updateDetails()
     if not self.index then return nil end
 
-    if os.clock() - self.last_update_time < 0.1 then return nil end
+    -- if os.clock() - self.last_update_time < 0.1 then return nil end
 
     local mob = windower.ffxi.get_mob_by_index(self.index)
     if not mob then return nil end
@@ -69,7 +69,7 @@ function MobObject:validVitals()
 end
 function MobObject:validStatus()
     if not self.details then return false end
-    return self.details.valid_target and self.details.spawn_type == 16 and (self.details.status ~= 2 or self.details.status ~= 3)
+    return (self.details.valid_target == true) and self.details.spawn_type == 16 and (self.details.status ~= 2 or self.details.status ~= 3)
 end
 function MobObject:isAllianceClaimed(alliance_ids)
     if not alliance_ids then return nil end

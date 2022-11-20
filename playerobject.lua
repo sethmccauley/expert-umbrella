@@ -51,7 +51,7 @@ end
 function PlayerObject:update()
     if self.id == 0 then return end
 
-    if os.clock() - self.last_update_time < 0.1 then return nil end
+    -- if os.clock() - self.last_update_time < 0.1 then return nil end
 
     local player_mob = windower.ffxi.get_mob_by_id(self.id)
     if not player_mob then return nil end
