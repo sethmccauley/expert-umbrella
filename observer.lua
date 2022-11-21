@@ -300,10 +300,8 @@ function ObserverObject:determineTarget(Actions, StateController)
                 if self.player.status == 1 then
                     local possible_target = MobObject:constructMob(hasCurrentTarget)
                     if possible_target and possible_target:isValidTarget(self.player.mob) and possible_target:isAllianceClaimed(self.claim_ids) then
-                        if verbose then
                             -- notice(Utilities:printTime()..' setting mob to fight MTF ~= CT, VALID CT, Engaged')
-                            notice(T(possible_target):tovstring())
-                        end
+                            -- notice(T(possible_target):tovstring())
                         self:setMobToFight({['name'] = possible_target.name, ['index'] = possible_target.index, ['obj'] = possible_target})
                     end
                 end
