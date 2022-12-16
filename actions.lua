@@ -254,14 +254,14 @@ function Actions:handleCombat(observer_obj)
     end
 
     local mob = observer_obj.mob_to_fight.obj
-    if mob then mob:updateDetails() else return end
+    if mob and mob.updateDetails then mob:updateDetails() else return end
 
     if self.player.status == 0 then -- PreCombat (Not Yet Engaged)
-        if self.player.target_index == nil and observer_obj:timeSinceLastTarget() > 5 then
-            observer_obj:setTargetPkt()
-            self:targetMob(mob)
-            notice(Utilities:printTime()..' Target invoked '..mob.name..' '..mob.index..'')
-        end
+        -- if self.player.target_index == nil and observer_obj:timeSinceLastTarget() > 5 then
+        --     observer_obj:setTargetPkt()
+        --     self:targetMob(mob)
+        --     notice(Utilities:printTime()..' Target invoked '..mob.name..' '..mob.index..'')
+        -- end
         Actions:emptyOncePerTables()
 
 
@@ -580,7 +580,7 @@ function Actions:testConditions(ability, --[[optional]]source, --[[optional]]mob
         ['strengthlt'] = function(value, modifier) if not modifier then return false end return not self.player:hasBuff(value, modifier) end,
         ['resonatingwith'] = function(value) if mob_obj and mob_obj.resonating_window == nil then return false end
                             local time_left = mob_obj.resonating_window - (os.clock() - mob_obj.resonating_start_time)
-			    local window_breeched = os.clock() - mob_obj.resonating_start_time > 3
+                            local window_breeched = os.clock() - mob_obj.resonating_start_time > 3
                             return Utilities:arrayContains(mob_obj.resonating, value) and window_breeched and time_left >= 0.5 end,
         ['notresonatingwith'] = function(value)
                             if mob_obj and mob_obj.resonating_window == nil then return false end

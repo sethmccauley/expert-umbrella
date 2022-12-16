@@ -111,7 +111,11 @@ function ObserverObject:setTargetList(new_target_list)
     end
 end
 function ObserverObject:setMobToFight(target_mob)
-    -- notice('Set Mob To Fight: '..target_mob.name..' '..target_mob.index)
+    if next(target_mob) ~= nil then
+        notice(Utilities:printTime(os.time())..' Set Mob To Fight: '..target_mob.name ..' '..target_mob.index)
+    else
+        notice(Utilities:printTime(os.time())..' Set Mob To Fight: empty')
+    end
     if os.clock() - self.mtf_update_time < 0.75 then return nil end
 
     self.mtf_update_time = os.clock()
@@ -213,7 +217,7 @@ function ObserverObject:pickNearest(mob_table)
 	return marray[closest_index] or T{}
 end
 function ObserverObject:hasDeclaredTarget()
-    if self.mob_to_fight and self.mob_to_fight.obj and self.mob_to_fight.obj:isValidTarget(self.player.mob) then
+    if self.mob_to_fight and self.mob_to_fight.obj and self.mob_to_fight.obj.isValidTarget and self.mob_to_fight.obj:isValidTarget(self.player.mob) then
         return true
     end
     return false
@@ -225,6 +229,8 @@ function ObserverObject:determineTarget(Actions, StateController)
     self:validateAggroTable()
     self:validateTargetsTable()
     self:validateMobToFight()
+
+    if self:timeSinceLastAttackPkt() < 4 then return end
 
     local hasCurrentTarget = self:hasCurrentTarget()
     -- Slave Targeting Considerations
@@ -277,7 +283,7 @@ function ObserverObject:determineTarget(Actions, StateController)
                 local possible_target = MobObject:constructMob(hasCurrentTarget)
                 if possible_target and possible_target:isValidTarget(self.player.mob) and possible_target:isAllianceClaimed(self.claim_ids) then
                     -- notice(Utilities:printTime()..' setting mob to fight NIL MTF, VALID CT, Engaged')
-                    self:setMobToFight({['name'] = possible_target.name, ['index'] = possible_target.index, ['obj'] = possible_target})
+                    self:setMobToFight(T{['name'] = possible_target.name, ['index'] = possible_target.index, ['obj'] = possible_target})
                     return
                 end
             end
@@ -293,21 +299,20 @@ function ObserverObject:determineTarget(Actions, StateController)
             self:setMobToFight(self:pickNearest(self.targets))
         end
     else
-    -- MTF is Populated
+    -- MTF is Populated, Check for current Target
         if hasCurrentTarget ~= 0 then
-            -- MTF ~= CT
+            -- Test for MTF ~= CT
             if self.mob_to_fight and self.mob_to_fight.index and self.mob_to_fight.index ~= hasCurrentTarget then
                 if self.player.status == 1 then
                     local possible_target = MobObject:constructMob(hasCurrentTarget)
                     if possible_target and possible_target:isValidTarget(self.player.mob) and possible_target:isAllianceClaimed(self.claim_ids) then
-                            -- notice(Utilities:printTime()..' setting mob to fight MTF ~= CT, VALID CT, Engaged')
-                            -- notice(T(possible_target):tovstring())
-                        self:setMobToFight({['name'] = possible_target.name, ['index'] = possible_target.index, ['obj'] = possible_target})
+                            notice(Utilities:printTime()..' setting mob to fight MTF ~= CT, VALID CT, Engaged')
+                            notice(T(possible_target):tovstring())
+                        self:setMobToFight(T{['name'] = possible_target.name, ['index'] = possible_target.index, ['obj'] = possible_target})
                     end
                 end
             end
         end
-
     end
 end
 function ObserverObject:hasCurrentTarget()
@@ -432,7 +437,7 @@ function ObserverObject:validateAggroTable()
 end
 function ObserverObject:validateMobToFight()
     if table.containskey(self.mob_to_fight, 'obj') then
-        if not self.mob_to_fight.obj:isValidTarget(self.player.mob) or not self.mob_to_fight.obj:isAllianceClaimed(self.claim_ids) then
+        if self.mob_to_fight.obj.isValidTarget and (not self.mob_to_fight.obj:isValidTarget(self.player.mob) or not self.mob_to_fight.obj:isAllianceClaimed(self.claim_ids)) then
             self:setMobToFight(T{})
         end
     end
