@@ -339,7 +339,11 @@ end
 function Actions:canUse(resolved_ability)
     if not self.player or not resolved_ability then return false end
 
+    if (resolved_ability and resolved_ability.prefix == '/item' or resolved_ability.prefix == '/ra') then return true end
+
     local learned = windower.ffxi.get_spells()[resolved_ability.id]
+
+    if resolved_ability.name == "Honor March" then return true end
 
     if Utilities:arrayContains(Actions.magic_castable_prefixes, resolved_ability.prefix) then
         if learned then
@@ -364,10 +368,6 @@ function Actions:canUse(resolved_ability)
     elseif Utilities:arrayContains(Actions.ws_castable_prefixes, resolved_ability.prefix) then
         local available_ws = T(windower.ffxi.get_abilities().weapon_skills)
         return available_ws:contains(resolved_ability.id)
-    elseif resolved_ability.prefix == '/item' then
-        return true
-    elseif resolved_ability.prefix == '/ra' then
-        return true
     end
     return false
 end
@@ -430,13 +430,13 @@ function Actions:isRecastReady(full_ability)
                 return recast == 0
             end
         elseif ability.prefix == '/item' and self.player:canJaWs() then
-            if (os.clock() - last.last_item_time > 8) then
+            if (os.clock() - self.last_item_time > 8) then
                 recast = 0
             end
             local resolved_item = Utilities.res.items:with('en',ability['name']:lower()) or Utilities.res.items:with('enl',ability['name']:lower()) or nil
             if resolved_item and not Utilities:haveItem(resolved_item.id) then
                 recast = 99
-            end 
+            end
             return recast == 0
         elseif ability.prefix == '/ra' and self.player:canJaWs() then
             recast = 0
@@ -469,14 +469,32 @@ function Actions:resolveAbility(raw_ability)
             return action
         end
     elseif raw_ability.prefix == '/item' then
-        action = raw_ability
-        action.range = 12
+        action = {
+            ['prefix'] = '/item',
+            ['tp_cost'] = 0,
+            ['declared_target'] = raw_ability.target,
+            ['type'] = "Item",
+            ['targets'] = {
+                "Self"
+            },
+            ['range'] = 12,
+            ['name'] = raw_ability.name
+        }
         if next(action) ~= nil then
             return action
         end
     elseif raw_ability.prefix == '/ra' then
-        action = raw_ability
-        action.range = 22
+        action = {
+            ['prefix'] = '/ra',
+            ['tp_cost'] = 0,
+            ['declared_target'] = raw_ability.target,
+            ['type'] = "Ranged Attack",
+            ['targets'] = {
+                "Enemy"
+            },
+            ['range'] = 22,
+            ['name'] = raw_ability.name
+        }
         if next(action) ~= nil then
             return action
         end
@@ -511,7 +529,7 @@ function Actions:testActions(list, ltype, mob)
                             self:addToUse(ability, ltype)
                         end
                     end
-                    -- notice(ability.name..' are conditions true '..tostring(self:testConditions(ability, 'combat', mob)))
+                    notice(ability.name..' are conditions true '..tostring(self:testConditions(ability, 'combat', mob)))
                     if action_res.type ~= 'Trust' and self:testConditions(ability, 'combat', mob) then
                         -- notice(ability.name)
                         if ability.prefix == '/ra' and not Utilities:arrayContains(self.once_per_combat, ability) then
