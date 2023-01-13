@@ -529,7 +529,7 @@ function Actions:testActions(list, ltype, mob)
                             self:addToUse(ability, ltype)
                         end
                     end
-                    notice(ability.name..' are conditions true '..tostring(self:testConditions(ability, 'combat', mob)))
+                    -- notice(ability.name..' are conditions true '..tostring(self:testConditions(ability, 'combat', mob)))
                     if action_res.type ~= 'Trust' and self:testConditions(ability, 'combat', mob) then
                         -- notice(ability.name)
                         if ability.prefix == '/ra' and not Utilities:arrayContains(self.once_per_combat, ability) then
