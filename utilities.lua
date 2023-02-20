@@ -121,8 +121,7 @@ function Utilities:haveItem(item)
 end
 
 function Utilities:determineResonation(packet, mob_obj)
-    if not mob_obj or not mob_obj.setResonatingValuesthen then return end
-
+    if not mob_obj or not mob_obj.setResonatingValues then return end
     local report = T{}
     -- WS Finish
     if packet['Category'] == 3 then
