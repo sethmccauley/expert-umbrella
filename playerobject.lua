@@ -85,7 +85,7 @@ function PlayerObject:hasBuff(buff, strength)
     local buffs = self:convertBuffList(self.buffs)
     local raw_buffs = self.buffs
 
-    if type(buff) == 'string' then 
+    if type(buff) == 'string' then
         local wildcard = buff:find('*')
         if wildcard then
             local newbuff = buff:gsub('*', ''):lower()
