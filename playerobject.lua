@@ -83,18 +83,27 @@ function PlayerObject:hasBuff(buff, strength)
     local tier = 0
     local strength = strength or 1
     local buffs = self:convertBuffList(self.buffs)
-    local wildcard = buff:find('*')
+    local raw_buffs = self.buffs
 
-    if wildcard then
-        local newbuff = buff:gsub('*', ''):lower()
-        for i,v in pairs(buffs) do
-            if v:find(newbuff) then
-                tier = tier + 1
+    if type(buff) == 'string' then 
+        local wildcard = buff:find('*')
+        if wildcard then
+            local newbuff = buff:gsub('*', ''):lower()
+            for i,v in pairs(buffs) do
+                if v:find(newbuff) then
+                    tier = tier + 1
+                end
+            end
+        else
+            for _,v in pairs(buffs) do
+                if v == buff:lower() then
+                    tier = tier + 1
+                end
             end
         end
     else
-        for _,v in pairs(buffs) do
-            if v == buff:lower() then
+        for _,v in pairs(raw_buffs) do
+            if v == buff then
                 tier = tier + 1
             end
         end
