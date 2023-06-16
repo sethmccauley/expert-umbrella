@@ -584,7 +584,9 @@ function Actions:testConditions(ability, --[[optional]]source, --[[optional]]mob
                         end
                         return not self.player:hasBuff(value) end,
         ['present'] = function(value)
-                        if value:lower() == 'pet' then return windower.ffxi.get_mob_by_target('pet') ~= nil end
+                        if type(value) == 'string' then
+                            if value:lower() == 'pet' then return windower.ffxi.get_mob_by_target('pet') ~= nil end
+                        end
                         return self.player:hasBuff(value:lower()) end,
         ['pethpplt'] = function(value)
                         local pet = windower.ffxi.get_mob_by_target('pet') or nil
