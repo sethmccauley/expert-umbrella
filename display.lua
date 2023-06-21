@@ -160,4 +160,10 @@ function Display:labels(this)
     return tostring(r)..','..tostring(g)..','..tostring(b)
 end
 
+function Display:destroy()
+    for i,v in pairs(self.text_box) do
+        v:destroy()
+    end
+end
+
 return Display

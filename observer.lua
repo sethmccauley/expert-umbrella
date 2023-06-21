@@ -42,6 +42,10 @@ function ObserverObject:constructObserver(player_obj)
     self.attack_round_calc = 0
     self.last_attack_swing = 0
 
+    self.server_offset = self:serverOffset()
+
+    self.ally_dependency = nil
+
     return self
 end
 
@@ -332,6 +336,91 @@ end
 function ObserverObject:updateParty()
     -- Update alliance entries here as well
     self.claim_ids = self:setPartyClaimIds()
+end
+function ObserverObject:hasBit(data, x)
+    return data:unpack('q', math.floor(x/8)+1, x%8+1)
+end
+function ObserverObject:serverOffset()
+    local vana_time = os.time() - 1009810800
+    return math.floor(os.time() - (vana_time * 60 % 0x100000000) / 60)
+end
+function ObserverObject:fromServerTime(t)
+    return t / 60 + self.server_offset
+end
+function ObserverObject:toServerTime(t)
+    return (t - self.server_offset) * 60
+end
+function ObserverObject:storeBuffDurationRemaining(id,data,modified,injected)
+    if id == 0x063 then
+        for i = 1, 32 do
+            local index = 0x09 + ((i-1) * 0x02)
+            local status_id = data:unpack('H', index)
+
+            if status_id ~= 255 then
+                self.player.buff_durations[i] = { id = status_id }
+            end
+        end
+
+        for i = 1, 32 do
+            if self.player.buff_durations[i] then
+                local index = 0x49 + ((i-1) * 0x04)
+                local endtime = data:unpack('I', index)
+
+                if endtime <= 4 then
+                    self.player.buff_durations[i] = nil
+                else
+                    self.player.buff_durations[i].endtime = math.floor(self:fromServerTime(endtime))
+                end
+            end
+        end
+    end
+    -- if id == 0x037 then
+    --     local p = packets.parse('incoming', data)
+    --     if p['Timestamp'] and p['Time offset?'] then
+    --         local vana_time = p['Timestamp'] * 60 - math.floor(p['Time offset?'])
+    --         self.server_offset = math.floor(os.time() - vana_time % 0x100000000 / 60)
+    --     end
+
+    --     for i = 1, 32 do
+    --         local index = 0x05 + (i-1)
+    --         local status_id = data:unpack('b8', index)
+
+    --         if status_id ~= 255 then
+    --             self.player.buff_durations[i] = { id = status_id }
+    --         end
+    --     end
+
+    --     for i = 1, 32 do
+    --         local index = 0x04C * 8 + (i-1)*2
+    --         local n = self:hasBit(data, index) and 1 or 0
+    --         n = n + (self:hasBit(data, index + 1) and 2 or 0)
+    --         if self.player.buff_durations[i] then
+    --             self.player.buff_durations[i].id = self.player.buff_durations[i].id + n*256
+    --         end
+    --     end
+    -- end
+end
+
+function ObserverObject:setAllyDependency(ally_name)
+    if ally_name == nil then return false end
+    self.ally_dependency = ally_name
+    return true
+end
+function ObserverObject:getAllyDependency()
+    return self.ally_dependency or false
+end
+function ObserverObject:isAllyDependencyPresent()
+    if self.ally_dependency == nil then return true end
+    local party_members = self:setPartyMembers()
+    for _,v in pairs(party_members) do
+        if v == self.ally_dependency then
+            return true
+        end
+    end
+    return false
+end
+function ObserverObject:handleMissingDependant()
+    self.targets = T{}
 end
 
 function ObserverObject:addToAggro(id)

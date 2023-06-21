@@ -344,6 +344,7 @@ function Actions:canUse(resolved_ability)
     local learned = windower.ffxi.get_spells()[resolved_ability.id]
 
     if resolved_ability.name == "Honor March" then return true end
+    if resolved_ability.name == "Impact" then return true end
 
     if Utilities:arrayContains(Actions.magic_castable_prefixes, resolved_ability.prefix) then
         if learned then
@@ -583,11 +584,23 @@ function Actions:testConditions(ability, --[[optional]]source, --[[optional]]mob
                             if value:lower() == 'pet' then return windower.ffxi.get_mob_by_target('pet') == nil end
                         end
                         return not self.player:hasBuff(value) end,
-        ['present'] = function(value)
+        ['present'] = function(value, modifier)
                         if type(value) == 'string' then
-                            if value:lower() == 'pet' then return windower.ffxi.get_mob_by_target('pet') ~= nil end
+                            if value:lower() == 'pet' then
+                                if modifier then return windower.ffxi.get_mob_by_target('pet') and windower.ffxi.get_mob_by_target('pet').name:lower() == modifier:lower() end
+                                return windower.ffxi.get_mob_by_target('pet') ~= nil
+                            end
                         end
                         return self.player:hasBuff(value) end,
+        ['buffdurationremaininglt'] = function(value, modifier)
+                            if not modifier or not value then return false end
+                            local buff_identifier = ''
+                            if type(value) == 'string' then
+                                buff_identifier = value:lower()
+                            end
+
+                            if not self.player:hasBuff(value) then return true end
+                            return self.player:buffTimeLeft(buff_identifier) < modifier end,
         ['pethpplt'] = function(value)
                         local pet = windower.ffxi.get_mob_by_target('pet') or nil
                         return pet ~= nil and pet.hpp < value end,

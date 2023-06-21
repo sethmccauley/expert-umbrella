@@ -1,5 +1,3 @@
-local Utilities = require('lang/utilities')
-
 local MobObject = {}
 MobObject.__index = MobObject
 
@@ -82,7 +80,7 @@ function MobObject:isAllianceClaimed(alliance_ids)
         claim_id_check = alliance_ids
     end
 
-    if Utilities:arrayContains(claim_id_check, self.details.claim_id) or self.details.claim_id == 0 then
+    if self:helperArrayContains(claim_id_check, self.details.claim_id) or self.details.claim_id == 0 then
         self.alliance_claimed = true
         return true
     end
@@ -98,6 +96,17 @@ function MobObject:differenceZ(player_mob)
     difference = math.abs(player_mob.z - self.details.z)
 
     return difference
+end
+
+function MobObject:helperArrayContains(t, value)
+    if not t or not value then return nil end
+    for i,v in pairs(t) do
+        if v == value or v == tostring(value):lower() or tostring(v):lower() == tostring(value):lower() then return true end
+        if type(v) == 'table' then
+            if self:arrayContains(v, value) then return true end
+        end
+    end
+    return false
 end
 
 return MobObject

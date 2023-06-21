@@ -22,6 +22,7 @@ function PlayerObject:constructPlayer()
     self.mob = player_mob
     self.is_trust = false
     self.details = player_obj
+    self.buff_durations = T{}
 
     self.last_update_time = 0
 
@@ -122,6 +123,30 @@ function PlayerObject:convertBuffList(bufflist)
         end
     end
     return buffarr
+end
+function PlayerObject:buffTimeLeft(buff)
+    local now = os.time()
+    local b_array = {}
+    local lowest_remaining = 9999
+    if next(self.buff_durations) then
+        for _,v in pairs(self.buff_durations) do
+            if type(buff) == 'string' then
+                if Utilities.res.buffs[v.id] and Utilities.res.buffs[v.id].english:lower() == buff then
+                    table.append(b_array, {id = v.id, endtime = v.endtime})
+                end
+            else
+                if v.id == buff then
+                    table.append(b_array, {id = v.id, endtime = v.endtime})
+                end
+            end
+        end
+        for _,val in pairs(b_array) do
+            if val.endtime and (val.endtime - now) < lowest_remaining then
+                lowest_remaining = (val.endtime - now)
+            end
+        end
+    end
+    return lowest_remaining
 end
 
 function PlayerObject:canAct()
