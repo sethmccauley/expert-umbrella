@@ -106,6 +106,11 @@ function StateController:determineState(Player, Observer, Actions, Navigation, M
     --  Aggro Table, Targets table, mob_to_fight are empty and post combat actions have been processed.
     --      *Clear noncombat (once per) table when moving to combat
 
+    local haveAggro = next(Observer.aggro)
+    local haveTargets = next(Observer.targets)
+    local currentState = self.state
+
+
     if self.state == 'combat' or (next(Observer.aggro) ~= nil or next(Observer.targets) ~= nil) then
         if self.state == 'combat' and next(Observer.aggro) == nil and next(Observer.targets) == nil then
             self:setState('postcombat')

@@ -242,7 +242,7 @@ function Actions:handleState(StateController, observer_obj)
         -- notice('precombat')
     elseif StateController.state == 'postcombat' then
         -- notice('postcombat')
-    elseif StateController.state == 'noncombat' then
+    elseif StateController.state == 'idle' or StateController.state == 'travel' then
         self:handleNonCombat(observer_obj)
     end
     self:runActions(observer_obj)
@@ -598,9 +598,16 @@ function Actions:testConditions(ability, --[[optional]]source, --[[optional]]mob
                             if type(value) == 'string' then
                                 buff_identifier = value:lower()
                             end
-
                             if not self.player:hasBuff(value) then return true end
                             return self.player:buffTimeLeft(buff_identifier) < modifier end,
+        ['buffdurationremaininggt'] = function(value, modifier)
+                            if not modifier or not value then return false end
+                            local buff_identifier = ''
+                            if type(value) == 'string' then
+                                buff_identifier = value:lower()
+                            end
+                            if not self.player:hasBuff(value) then return false end
+                            return self.player:buffTimeLeft(buff_identifier) > modifier end,
         ['pethpplt'] = function(value)
                         local pet = windower.ffxi.get_mob_by_target('pet') or nil
                         return pet ~= nil and pet.hpp < value end,
@@ -809,7 +816,7 @@ function Actions:handleActionNotification(act, player, observer, statecontroller
         if category == 8 then -- Interrupted Casting
             if param == 28787 then
                 notice('Interrupted.')
-                coroutine.schedule(function() observer:forceUnbusy() end, 1.7)
+                coroutine.schedule(function() observer:forceUnbusy() end, 2)
             end
         end
 
@@ -870,12 +877,12 @@ function Actions:handleActionNotification(act, player, observer, statecontroller
                             break
                         end
                     end
-                    coroutine.schedule(function() observer:forceUnbusy() end, 1.7)
+                    coroutine.schedule(function() observer:forceUnbusy() end, 2)
                 end
             end
             if param == 0 then
                 self.to_use = T{}
-                coroutine.schedule(function() observer:forceUnbusy() end, 1.7)
+                coroutine.schedule(function() observer:forceUnbusy() end, 2)
             end
         end
     end

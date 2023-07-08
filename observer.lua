@@ -639,6 +639,15 @@ function ObserverObject:inParty(name)
     end
 	return false
 end
+function ObserverObject:isPartyLead()
+    return self.player:isPartyLead()
+end
+function ObserverObject:isSolo()
+    return self.player:isSolo()
+end
+function ObserverObject:inAlliance()
+    return self.player:inAlliance()
+end
 function ObserverObject:playersTarget(name)
     if name == nil then return nil end
 	local name = name
