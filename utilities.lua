@@ -88,7 +88,7 @@ function Utilities:valueAtKey(t, key)
     for i,v in pairs(t) do
         if i == key or i == tostring(key):lower() then return v end
         if type(v) == 'table' then
-            if value_at_key(v, key) then return v[key] end
+            if self:value_at_key(v, key) then return v[key] end
         end
     end
     return nil
