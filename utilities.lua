@@ -1,4 +1,4 @@
-require('extdata')
+local extdata = require('extdata')
 
 local Utilities = {}
 Utilities.__index = Utilities
@@ -66,6 +66,7 @@ Utilities._skillchains = L{
     [769] = 'Radiance',
     [770] = 'Umbra',
 }
+Utilities._slot_map = T{'main','sub','range','ammo','head','body','hands','legs','feet','neck','waist','left_ear', 'right_ear', 'left_ring', 'right_ring','back'}
 
 function Utilities:constructUtilities() 
     local self = setmetatable({}, Utilities)
@@ -115,6 +116,25 @@ function Utilities:haveItem(item)
             if items[v][index].id == item then
                 return true
             end
+        end
+    end
+    return false
+end
+
+function Utilities:haveKI(item)
+    local key_items = windower.ffxi.get_key_items()
+    local ki_id = 0
+    for _,v in pairs(Utilities.res.key_items) do
+        if v.en:lower() == item:lower() then
+            ki_id = v.id
+        end
+    end
+    if ki_id == 0 then
+        return false
+    end
+    for _,v in pairs(key_items) do
+        if v == ki_id then
+            return true
         end
     end
     return false
@@ -180,6 +200,123 @@ end
 function Utilities:printTime(seconds)
     local date = os.date("*t", seconds)
     return tostring('['..date.hour..':'..date.min..':'..date.sec..']')
+end
+
+function Utilities:isBlank(value)
+    return not not tostring(value):find("^%s*$")
+end
+
+function Utilities:isEquipped(item)
+    local items = windower.ffxi.get_items()
+    local item_id, item = Utilities.res.items:find(function(v) if v.name == item then return true end end)
+    if item_id == nil then return false end
+    local equipment = T{}
+    for id,name in pairs(Utilities._slot_map) do
+        equipment[name] = {
+            ['slot'] = items.equipment[name],
+            ['bag_id'] = items.equipment[name..'_bag']
+            }
+        if equipment[name].slot == 0 then equipment[name].slot = 'empty' end
+    end
+    for i,v in pairs(equipment) do
+        if v.slot ~= 'empty' then
+            if items[Utilities:fixBag(Utilities.res.bags[v.bag_id].english)][v.slot].id == item_id then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+function Utilities:fixBag(bag)
+    local new = bag:gsub(' ','')
+    return new:lower()
+end
+
+function Utilities:isUsable(item)
+    local item_id, item = Utilities.res.items:find(function(v) if v.name == item then return true end end)
+	local inventory = windower.ffxi.get_items()
+	local usable_bags = T{'inventory','wardrobe','wardrobe2','wardrobe3','wardrobe4'}
+	local itemdata = {}
+
+	for i,v in pairs(inventory) do
+		if usable_bags:contains(i) then
+			for key,val in pairs(v) do
+				if type(val) == 'table' and val.id == item_id then
+					itemdata = extdata.decode(val)
+				end
+			end
+		end
+	end
+    if itemdata['usable'] then return itemdata['usable'] end
+    return false
+end
+
+function Utilities:hasCharges(item)
+	local item_id, item = Utilities.res.items:find(function(v) if v.name == item then return true end end)
+	local inventory = windower.ffxi.get_items()
+	local bags = T{'inventory','safe','safe2','storage','satchel','locker','sack','case','wardrobe','wardrobe2','wardrobe3','wardrobe4'}
+	local itemdata = {}
+
+	for i,v in pairs(inventory) do
+		if bags:contains(i) then
+			for key,val in pairs(v) do
+				if type(val) == 'table' and val.id == item_id then
+					itemdata = extdata.decode(val)
+				end
+			end
+		end
+	end
+
+	if itemdata and itemdata.charges_remaining then
+		if itemdata.charges_remaining > 0 then
+			return true
+		end
+	end
+	return false
+end
+
+function Utilities:partyIsPresent()
+    local party_table = windower.ffxi.get_party()
+    local world = windower.ffxi.get_info()
+    if party_table == nil then return false end
+    local all_present = true
+    local party_members = {
+        ['p0'] = true,
+    }
+    local zone_id = world.zone
+
+    for party_key,member in pairs(party_table) do
+        if type(member) == 'table' then
+            local isPresent = true
+            if member.zone ~= zone_id then
+                isPresent = false
+            end
+
+            if isPresent and member.mob and distance_to(member.mob.x, member.mob.y) < 8 then
+                isPresent = true
+            else
+                isPresent = false
+            end
+
+            if isPresent then
+                party_members[party_key] = true
+            else
+                party_members[party_key] = false
+            end
+        end
+    end
+
+    for p_key,mem in pairs(party_members) do
+        if mem == false then
+            all_present = false
+        end
+    end
+    if all_present == true then
+        -- notice('All here.')
+        return true
+    end
+    return false
 end
 
 return Utilities

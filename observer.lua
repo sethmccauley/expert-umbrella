@@ -26,6 +26,7 @@ function ObserverObject:constructObserver(player_obj)
     self.nearest_target = nil
     self.mob_to_fight = T{}
     self.mtf_update_time = 0
+    self.mtf_claim_start = 0
 
     self.last_atk_pkt = 0
     self.last_atk_pkt_issued = nil
@@ -45,6 +46,18 @@ function ObserverObject:constructObserver(player_obj)
     self.server_offset = self:serverOffset()
 
     self.ally_dependency = nil
+
+    self.combat_positioning = T{}
+
+    self.sparks = 0
+    self.accolades = 0
+    self.conquest = {
+        ['s'] = 0,
+        ['b'] = 0,
+        ['w'] = 0,
+    }
+    self.merits = 0
+    self.gil = 0
 
     return self
 end
@@ -149,6 +162,26 @@ function ObserverObject:setAttackRoundCalcTime()
         self.attack_round_calc = 0
     end
 end
+function ObserverObject:setCombatPosition(x, y)
+    if x == nil and y == nil then
+        self.combat_positioning = T{}
+        return
+    end
+    self.combat_positioning = T{['x'] = x, ['y'] = y}
+end
+
+function ObserverObject:setCurrency(currency_type, value)
+    if type(currency_type) == 'table' then
+        if currency_type and currency_type.name == 'conquest' and currency_type.sub and value then
+            self.conquest[currency_type.sub] = value
+        end
+        return
+    end
+    local allowed = T{'accolades', 'gil', 'merits', 'sparks'}
+    if allowed:contains(currency_type) then
+        self[currency_type] = value
+    end
+end
 
 function ObserverObject:updateMobs(navigation_obj)
     if not self.player then return nil end
@@ -157,14 +190,13 @@ function ObserverObject:updateMobs(navigation_obj)
 
     if os.clock() - self.last_target_update_time < 0.1 then return nil end
 
-    self.targets = self:findTargets(self.target_list, navigation_obj)
+    self:findTargets(self.target_list, navigation_obj)
 end
 function ObserverObject:findTargets(mob_table_list, navigation_obj)
 
     if next(self.target_list) == nil then return T{} end
 
     local builder_marray = mob_table_list or nil
-    local target_array = T{}
     local nodes = navigation_obj and navigation_obj.nodes or T{}
     if not builder_marray then return end
 
@@ -175,8 +207,14 @@ function ObserverObject:findTargets(mob_table_list, navigation_obj)
                     local mobs = self:getMArray(val)
                     for ke,va in pairs(mobs) do
                         local mob = MobObject:constructMob(va)
-                        if not target_array[ke] and mob and mob:isValidTarget(self.player.mob) and self:isCloseEnough(mob, self.player.mob, nodes, self.scan_range) and mob:isAllianceClaimed(self.claim_ids) then
-                            target_array[ke] = {
+                        if self.targets[ke] and self.targets[ke]['obj'] then
+                            self.targets[ke]['obj']:updateDetails()
+                            if self.targets[ke]['obj']:isTrulyClaimed(self.claim_ids) and self.targets[ke]['obj'].claimed_at_time == 0 then
+                                self.targets[ke]['obj'].claimed_at_time = os.clock()
+                            end
+                        end
+                        if not self.targets[ke] and mob and mob:isValidTarget(self.player.mob) and self:isCloseEnough(mob, self.player.mob, nodes, self.scan_range) and mob:isAllianceClaimed(self.claim_ids) then
+                            self.targets[ke] = {
                                 ['name'] = mob.details.name,
                                 ['index'] = mob.index,
                                 ['obj'] = mob
@@ -190,13 +228,20 @@ function ObserverObject:findTargets(mob_table_list, navigation_obj)
                 for _,val in pairs(v) do
                     local index = tonumber(val, 16)
                     local mob = MobObject:constructMob(index)
-                    if not target_array[index] and mob and mob:isValidTarget(self.player.mob) and self:isCloseEnough(mob, self.player.mob, nodes, self.scan_range) and mob:isAllianceClaimed(self.claim_ids) then
-                        target_array[mob.index] = {
+                    if self.targets[mob.index] and self.targets[mob.index]['obj'] then
+                        self.targets[mob.index]['obj']:updateDetails()
+                        if self.targets[mob.index]['obj']:isTrulyClaimed(self.claim_ids) and self.targets[mob.index]['obj'].claimed_at_time == 0 then
+                            self.targets[mob.index]['obj'].claimed_at_time = os.clock()
+                        end
+                    end
+                    if not self.targets[mob.index] and mob and mob:isValidTarget(self.player.mob) and self:isCloseEnough(mob, self.player.mob, nodes, self.scan_range) and mob:isAllianceClaimed(self.claim_ids) then
+                        self.targets[mob.index] = {
                             ['name'] = mob.details.name,
                             ['index'] = mob.index,
                             ['obj'] = mob,
                         }
                     end
+
                 end
             end
         end
@@ -254,6 +299,11 @@ function ObserverObject:determineTarget(Actions, StateController)
                             -- notice(Utilities:printTime()..' Master found target '..hasCurrentTarget..' adding to aggro table.')
                             self:addToAggro(potential_target.id)
                         end
+                        if self.mob_to_fight and self.mob_to_fight.obj then
+                            if self.mob_to_fight.obj.claimed_at_time and self.mob_to_fight.obj.claimed_at_time == 0 then
+                                self.mob_to_fight.obj.claimed_at_time = os.clock()
+                            end
+                        end
                     else
                         if Utilities:arrayContains(self.aggro, potential_target.id) then
                             for i,v in pairs(self.aggro) do
@@ -288,6 +338,7 @@ function ObserverObject:determineTarget(Actions, StateController)
                 if possible_target and possible_target:isValidTarget(self.player.mob) and possible_target:isAllianceClaimed(self.claim_ids) then
                     -- notice(Utilities:printTime()..' setting mob to fight NIL MTF, VALID CT, Engaged')
                     self:setMobToFight(T{['name'] = possible_target.name, ['index'] = possible_target.index, ['obj'] = possible_target})
+                    Actions:emptyOncePerTables()
                     return
                 end
             end
@@ -297,10 +348,12 @@ function ObserverObject:determineTarget(Actions, StateController)
             if next(self.aggro) ~= nil then
                 -- notice(Utilities:printTime()..' setting mob to fight from nearest aggro table')
                 self:setMobToFight(self:pickNearest(self.aggro))
+                Actions:emptyOncePerTables()
             end
         else
             -- notice(Utilities:printTime()..' setting mob to fight from nearest target table')
             self:setMobToFight(self:pickNearest(self.targets))
+            Actions:emptyOncePerTables()
         end
     else
     -- MTF is Populated, Check for current Target
@@ -313,6 +366,7 @@ function ObserverObject:determineTarget(Actions, StateController)
                             notice(Utilities:printTime()..' setting mob to fight MTF ~= CT, VALID CT, Engaged')
                             notice(T(possible_target):tovstring())
                         self:setMobToFight(T{['name'] = possible_target.name, ['index'] = possible_target.index, ['obj'] = possible_target})
+                        Actions:emptyOncePerTables()
                     end
                 end
             end
@@ -331,6 +385,10 @@ function ObserverObject:getCurrentTargetID()
 end
 function ObserverObject:clearMobToFight()
     self.mob_to_fight = T{}
+end
+
+function ObserverObject:validTargetable(name)
+
 end
 
 function ObserverObject:updateParty()
@@ -466,9 +524,10 @@ end
     }
 
 ]]
-function ObserverObject:getMArray(names)
+function ObserverObject:getMArray(names, loose)
     local marray = windower.ffxi.get_mob_array()
     local target_names = T{}
+    local wildcard = loose or false
 
     if type(names) == 'table' then 
         for i,v in pairs(names) do
@@ -489,9 +548,22 @@ function ObserverObject:getMArray(names)
     if names then
         for i,v in pairs(marray) do
             local delete = false
-            if not target_names:with('name', v.name:lower()) then
-                delete = true
+            if wildcard then
+                local temp_check = false
+                for _,val in pairs(target_names) do
+                    if v.name:lower():find(val.name:lower()) then
+                        temp_check = true
+                    end
+                end
+                if not temp_check then
+                    delete = true
+                end
+            else
+                if not target_names:with('name', v.name:lower()) then
+                    delete = true
+                end
             end
+
             if delete then
                 marray[i] = nil
             end
@@ -504,7 +576,7 @@ function ObserverObject:differenceZ(mob_obj, player_mob)
     if not mob_obj or not player_mob then return nil end
 
     local difference = 0
-    difference = math.abs(player.z - mob_obj.z)
+    difference = math.abs(player_mob.z - mob_obj.z)
 
     return difference
 end
@@ -713,6 +785,30 @@ function ObserverObject:getFileContents()
         ["names"]= self.target_list,
         ["ignore"]= self.ignore_list
     }
+end
+
+function ObserverObject:determinePointInSpace(target, distance, degrees)
+    -- No protection, just raw dog it.
+
+    -- Get the difference from its heading to the new angle
+    local radians = degrees * math.pi / 180
+    radians = radians - target.facing
+
+    local new_x = target.x + distance * math.cos(radians)
+    local new_y = target.y + distance * math.sin(radians)
+
+    return new_x, new_y
+end
+
+function ObserverObject:queueCurrencyUpdate()
+    local packet = packets.new('outgoing', 0x117, {["_unknown2"]=0})
+    packets.inject(packet)
+    local packet2 = packets.new('outgoing', 0x10F, {})
+    packets.inject(packet2)
+end
+function ObserverObject:queueMeritUpdate()
+    local packet = packets.new('outgoing', 0x061, {["_unknown1"]=0})
+    packets.inject(packet)
 end
 
 return ObserverObject

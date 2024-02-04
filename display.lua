@@ -4,7 +4,7 @@ local Display = {}
 Display.__index = Display
 Display.texts = require('texts')
 
-function Display:constructDisplay(Player, Observer, StateController, Actions, Navigation, config) 
+function Display:constructDisplay(Player, Observer, StateController, Actions, Navigation, config)
     local self = setmetatable({}, Display)
 
     self.player = Player
@@ -51,7 +51,7 @@ function Display:updateText(box_type)
 	local head = L{}
 
     if self.display_settings[box_type]['type'] == 'agent' then
-        head:append('\\cs('..self:labels(box_type)..')'..string.format('%10s','| ${title} | ')..'\\cr')
+        head:append('\\cs('..self:labels(box_type)..')'..string.format('%10s','| ${title} v1.2| ')..'\\cr')
         head:append(string.format('%-8s','File: ')..string.format('%10s','${file_name|None} '))
         head:append(string.format('%-12s','Step Cnt.: ')..string.format('%10s','${current_step|0}/${total_steps|0}'))
         head:append(string.format('%-12s','Step Type: ')..string.format('%10s','${step_type|N/A}'))
@@ -62,16 +62,16 @@ function Display:updateText(box_type)
         information['triggered'] = nil
         information['performed'] = nil
         information['validated'] = nil
-        if next(steps) ~= nil and next(info) ~= nil then
-            information['file_name'] = string.sub(info.file_name,1,12)
-            information['current_step'] = info.current_step
-            information['total_steps'] = #steps
-            if steps[info.current_step] then
-                information['step_type'] = steps[info.current_step].type or 'None'
-                if info.steps[info.current_step] then
-                    information['triggered'] = info.steps[info.current_step].triggered or nil
-                    information['performed'] = info.steps[info.current_step].performed or nil
-                    information['validated'] = info.steps[info.current_step].validated or nil
+        if self.statecontroller ~= nil and next(self.statecontroller.steps) ~= nil then
+            information['file_name'] = string.sub(self.statecontroller.fileName,1,12)
+            information['current_step'] = self.statecontroller.currentStep
+            information['total_steps'] = #self.statecontroller.steps
+            if self.statecontroller.steps[self.statecontroller.currentStep] then
+                information['step_type'] = self.statecontroller.steps[self.statecontroller.currentStep].type or 'None'
+                if self.statecontroller.stepQueue[self.statecontroller.currentStep] then
+                    information['triggered'] = self.statecontroller.stepQueue[self.statecontroller.currentStep].triggered or nil
+                    information['performed'] = self.statecontroller.stepQueue[self.statecontroller.currentStep].performed or nil
+                    information['validated'] = self.statecontroller.stepQueue[self.statecontroller.currentStep].validated or nil
                 end
             end
         end

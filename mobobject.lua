@@ -18,6 +18,7 @@ function MobObject:constructMob(mob_or_index)
     self.details = mob
     self.valid_target = false
     self.alliance_claimed = false
+    self.claimed_at_time = 0
     self.last_update_time = 0
     self.resonating = T{}
     self.resonating_step = 0
@@ -81,6 +82,25 @@ function MobObject:isAllianceClaimed(alliance_ids)
     end
 
     if self:helperArrayContains(claim_id_check, self.details.claim_id) or self.details.claim_id == 0 then
+        self.alliance_claimed = true
+        return true
+    end
+
+    self.alliance_claimed = false
+    return false
+end
+function MobObject:isTrulyClaimed(alliance_ids)
+    if not alliance_ids then return nil end
+
+    self:updateDetails()
+    local claim_id_check = T{}
+    if type(alliance_ids) ~= 'table' then 
+        claim_id_check[1] = alliance_ids
+    else
+        claim_id_check = alliance_ids
+    end
+
+    if self:helperArrayContains(claim_id_check, self.details.claim_id) then
         self.alliance_claimed = true
         return true
     end

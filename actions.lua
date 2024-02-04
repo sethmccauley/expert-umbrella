@@ -95,6 +95,7 @@ function Actions:constructActions(action_list, Player)
     self.precombat_actions = T{}
     self.postcombat_actions = T{}
     self.engage_distance = 16
+    self.should_engage = true
 
     self.to_use = T{}
 
@@ -115,6 +116,7 @@ function Actions:setActionList(action_list)
 
     for i,v in pairs(action_list) do
         if i == 'engage_distance' then self:setEngageDistance(v)
+        elseif i == 'should_engage' then self:setShouldEngage(v)
         elseif i == 'combat' then self.combat_actions = self:processAbilities(v)
         elseif i == 'precombat' then self.precombat_actions = self:processAbilities(v)
         elseif i == 'postcombat' then self.postcombat_actions = self:processAbilities(v)
@@ -133,6 +135,10 @@ end
 function Actions:setEngageDistance(value)
     if value < 1 or value > 24 then return nil end
     self.engage_distance = value
+end
+function Actions:setShouldEngage(value)
+    if type(value) ~= 'boolean' then return nil end
+    self.should_engage = value
 end
 function Actions:setLastWeaponSkill(ws)
     if type(ws) ~= 'table' then return nil end
@@ -237,7 +243,7 @@ function Actions:handleState(StateController, observer_obj)
     self.player:update()
 
     if StateController.state == 'combat' then
-        self:handleCombat(observer_obj)
+        self:handleCombat(StateController, observer_obj)
     elseif StateController.state == 'precombat' then
         -- notice('precombat')
     elseif StateController.state == 'postcombat' then
@@ -245,10 +251,10 @@ function Actions:handleState(StateController, observer_obj)
     elseif StateController.state == 'idle' or StateController.state == 'travel' then
         self:handleNonCombat(observer_obj)
     end
-    self:runActions(observer_obj)
+    self:runActions(StateController, observer_obj)
 end
 
-function Actions:handleCombat(observer_obj)
+function Actions:handleCombat(StateController, observer_obj)
     if observer_obj and observer_obj.mob_to_fight and not observer_obj.mob_to_fight.obj then
         return
     end
@@ -256,19 +262,9 @@ function Actions:handleCombat(observer_obj)
     local mob = observer_obj.mob_to_fight.obj
     if mob and mob.updateDetails then mob:updateDetails() else return end
 
-    if self.player.status == 0 then -- PreCombat (Not Yet Engaged)
-        -- if self.player.target_index == nil and observer_obj:timeSinceLastTarget() > 5 then
-        --     observer_obj:setTargetPkt()
-        --     self:targetMob(mob)
-        --     notice(Utilities:printTime()..' Target invoked '..mob.name..' '..mob.index..'')
-        -- end
-        Actions:emptyOncePerTables()
+    if self.player.status == 0 and self.should_engage then -- We are not engaged while in a combat state and we should be engaged.
 
-
-        -- notice('Time since last attack command: '..observer_obj:timeSinceLastAttackPkt().. ' > 4')
-        -- notice('Time since last attack round: '..observer_obj:timeSinceLastAttackRound().. ' > '..observer_obj.attack_round_calc)
-
-        if (mob.details.distance:sqrt() < (self.engage_distance or 5)) and observer_obj:timeSinceLastAttackPkt() > 4 and observer_obj:timeSinceLastAttackRound() > observer_obj.attack_round_calc then
+        if (mob.details.distance:sqrt() < (self.engage_distance or 5)) and observer_obj:timeSinceLastAttackPkt() > 3 and observer_obj:timeSinceLastAttackRound() > observer_obj.attack_round_calc then
             observer_obj:setAtkPkt()
             self:attackMob(mob)
             notice(Utilities:printTime()..' Attack invoked '..mob.name..' '..mob.index..'')
@@ -276,11 +272,50 @@ function Actions:handleCombat(observer_obj)
             observer_obj.is_busy = true
             coroutine.schedule(function() observer_obj:forceUnbusy() end, 0.5)
         end
-    elseif self.player.status == 1 then -- Combat
+
+    elseif self.player.status == 0 and not self.should_engage then
+
+        if mob.details.distance:sqrt() < (self.engage_distance or 5) then
+            local current_target = observer_obj:hasCurrentTarget()
+            if current_target == 0 or (current_target ~= 0 and current_target ~= mob.index) then
+                self.targetMob(self, mob)
+            end
+        end
+
+    end
+
+    if self.player.status == 1 or not self.should_engage then -- We are in fact engaged or we shouldn't_engage and while in combat state.
+
         if next(self.combat_actions) ~= nil then
             self:testActions(self.combat_actions, 'combat', mob)
         end
+
     end
+
+    -- if self.player.status == 0 then -- PreCombat (Not Yet Engaged)
+    --     -- if self.player.target_index == nil and observer_obj:timeSinceLastTarget() > 5 then
+    --     --     observer_obj:setTargetPkt()
+    --     --     self:targetMob(mob)
+    --     --     notice(Utilities:printTime()..' Target invoked '..mob.name..' '..mob.index..'')
+    --     -- end
+    --     -- Actions:emptyOncePerTables()
+
+    --     -- notice('Time since last attack command: '..observer_obj:timeSinceLastAttackPkt().. ' > 4')
+    --     -- notice('Time since last attack round: '..observer_obj:timeSinceLastAttackRound().. ' > '..observer_obj.attack_round_calc)
+
+    --     if (mob.details.distance:sqrt() < (self.engage_distance or 5)) and observer_obj:timeSinceLastAttackPkt() > 3 and observer_obj:timeSinceLastAttackRound() > observer_obj.attack_round_calc then
+    --         observer_obj:setAtkPkt()
+    --         self:attackMob(mob)
+    --         notice(Utilities:printTime()..' Attack invoked '..mob.name..' '..mob.index..'')
+
+    --         observer_obj.is_busy = true
+    --         coroutine.schedule(function() observer_obj:forceUnbusy() end, 0.5)
+    --     end
+    -- elseif self.player.status == 1 then -- Combat
+    --     if next(self.combat_actions) ~= nil then
+    --         self:testActions(self.combat_actions, 'combat', mob)
+    --     end
+    -- end
 end
 
 function Actions:handleNonCombat(observer_obj)
@@ -318,6 +353,10 @@ function Actions:inRange(full_ability)
         end
     end
 
+    if action.prefix == '/pos' then
+        return true
+    end
+
     if not targ_obj or next(targ_obj) == nil then return false end
 
     local distance = Observer:distanceBetween(self_target, targ_obj)
@@ -341,8 +380,12 @@ function Actions:canUse(resolved_ability)
 
     if (resolved_ability and resolved_ability.prefix == '/item' or resolved_ability.prefix == '/ra') then return true end
 
+    -- Position Action handling.
+    if (resolved_ability and resolved_ability.prefix == '/pos' and self.player:canJaWs()) then return true end
+
     local learned = windower.ffxi.get_spells()[resolved_ability.id]
 
+    -- This is a shortcut, hacky mess, this should test if they have the gear required!
     if resolved_ability.name == "Honor March" then return true end
     if resolved_ability.name == "Impact" then return true end
 
@@ -377,7 +420,7 @@ function Actions:isRecastReady(full_ability)
     if not self.player or not full_ability then return false end
 
     local needs_recast_id = true
-    if full_ability.prefix and Utilities:arrayContains(Actions.ws_castable_prefixes, full_ability.prefix) or full_ability.prefix == '/item' then
+    if full_ability.prefix and Utilities:arrayContains(Actions.ws_castable_prefixes, full_ability.prefix) or full_ability.prefix == '/item' or full_ability.prefix == '/pos' then
         needs_recast_id = false
     end
 
@@ -442,6 +485,9 @@ function Actions:isRecastReady(full_ability)
         elseif ability.prefix == '/ra' and self.player:canJaWs() then
             recast = 0
             return recast == 0
+        elseif ability.prefix == '/pos' and self.player:canJaWs() then
+            recast = 0
+            return recast == 0
         end
     end
     return false
@@ -499,6 +545,23 @@ function Actions:resolveAbility(raw_ability)
         if next(action) ~= nil then
             return action
         end
+    elseif raw_ability.prefix == '/pos' then
+        action = {
+            ['prefix'] = '/pos',
+            ['tp_cost'] = 0,
+            ['declared_target'] = raw_ability.target,
+            ['type'] = "Positioning",
+            ['targets'] = {
+                "Enemy","Ally"
+            },
+            ['range'] = 50,
+            ['name'] = raw_ability.name,
+            ['degrees'] = raw_ability.degrees or 0,
+            ['distance'] = raw_ability.distance or 2
+        }
+        if next(action) ~= nil then
+            return action
+        end
     end
     return false
 end
@@ -551,11 +614,24 @@ function Actions:testConditions(ability, --[[optional]]source, --[[optional]]mob
     if not ability.conditions then return true end
 
     local conditions = ability.conditions
+    local have_mob_obj = false
+    if mob_obj then
+        have_mob_obj = true
+    end
     local mob_obj = mob_obj or windower.ffxi.get_mob_by_target('t') or nil
     local action = ability
     local src = source or nil
 
     if not self.player or next(conditions) == nil then return false end
+
+    if ability.prefix == '/pos' and have_mob_obj then
+        if mob_obj.claimed_at_time == 0 then
+            return false
+        end
+        if (os.clock() - mob_obj.claimed_at_time < 1.5) then
+            return false
+        end
+    end
 
     self.player:update()
     local decision = false
@@ -648,6 +724,7 @@ function Actions:testConditions(ability, --[[optional]]source, --[[optional]]mob
         end
         if decision == false then return false end
     end
+
     return decision
 end
 
@@ -668,7 +745,7 @@ function Actions:addToUse(action, list_type) -- Unecessary, as most things.
     end
 end
 
-function Actions:runActions(observer_obj)
+function Actions:runActions(StateController, observer_obj)
     self.player:update()
 
     if next(self.to_use) ~= nil and observer_obj.is_busy == false then
@@ -718,6 +795,20 @@ function Actions:runActions(observer_obj)
                     self:sendCommand('input '..ability.prefix..' "'..ability.name..'" <'..ability.target..'>')
                 elseif ability.prefix == '/ra' then
                     self:sendCommand('input '..ability.prefix..' <'..ability.target..'>')
+                elseif ability.prefix == '/pos' then
+                    if target then
+                        local me = self.player.mob
+                        local degrees = ability.degrees
+
+                        local dx = target.details.x - me.x
+                        local dy = target.details.y - me.y
+                        local distance = resolved_ability.distance or math.sqrt(dx*dx + dy*dy) or 2
+                        local new_x, new_y = Observer:determinePointInSpace(target.details, distance, degrees)
+
+                        observer_obj:setCombatPosition(new_x, new_y)
+                        StateController:setState('combat positioning')
+                        table.remove(self.to_use, 1)
+                    end
                 else
                     self.last_action = ability.name
                     self:setLastJobAbility(ability)

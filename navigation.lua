@@ -17,11 +17,13 @@ function NavigationObject:constructNavigation(player_obj)
     self.start_time = 0
 
     self.last_update_time = 0
+    self.need_closest_node = false
 
     self.node_tolerance = 2
 
     self.recording = false
     self.paused = false
+    self.reachedEnd = false
 
     return self
 end
@@ -35,12 +37,20 @@ function NavigationObject:setRoute(route_obj)
         end
     end
 end
+function NavigationObject:setShortCourse(nodes)
+    if type(nodes) ~= 'table' then return nil end
+    self.route = nodes
+    self.pause = 999999
+end
 function NavigationObject:setMode(style)
     if type(style) ~= 'string' then return end
     self.navigation_mode = style
 end
 function NavigationObject:setLastUpdateTime()
     self.last_update_time = os.clock()
+end
+function NavigationObject:setNeedClosestNode(boolean)
+    self.need_closest_node = boolean
 end
 function NavigationObject:setModeTolerance(num)
     self.mode_tolerance = tonumber(num)
@@ -73,7 +83,12 @@ function NavigationObject:update()
 
     if os.clock() - self.last_update_time < 0.1 then return nil end
 
-    self.current_node = self:determineClosestWaypoint()
+    if self.need_closest_node == true then
+        self.current_node = self:determineClosestWaypoint()
+        self.need_closest_node = false
+    end
+
+    -- self.current_node = self:determineClosestWaypoint()
     self:setLastUpdateTime()
 end
 
@@ -152,7 +167,9 @@ function NavigationObject:closeIn(mob_obj)
 	end
 end
 function NavigationObject:runTrack(StateController)
-    if StateController.is_casting == true then return end
+    if StateController then
+        if StateController.is_casting == true then return end
+    end
     local max_steps = #self.route or 0
     local currentstep = self.current_node
     local pause_time = tonumber(self.pause)
@@ -160,6 +177,7 @@ function NavigationObject:runTrack(StateController)
     if currentstep > max_steps and self.start_time == 0 and pause_time > 0 then
         self.start_time = os.clock()
         self.paused = true
+        self.reachedEnd = true
     end
 
     if currentstep > max_steps then
@@ -174,6 +192,7 @@ function NavigationObject:runTrack(StateController)
                 currentstep, self.current_node = 1,1
                 self.start_time = 0
                 self.paused = false
+                self.reachedEnd = false
             elseif self.navigation_mode == 'bounce' then
                 if self.paused then
                     if not (os.clock() - self.start_time > pause_time) then
@@ -185,6 +204,7 @@ function NavigationObject:runTrack(StateController)
                 currentstep, self.current_node = 1,1
                 self.start_time = 0
                 self.paused = false
+                self.reachedEnd = false
             end
         end
     end
@@ -193,6 +213,7 @@ function NavigationObject:runTrack(StateController)
         if self.navigation_mode and self.navigation_mode == 'camp' then windower.ffxi.run(false) return end
         self.current_node = self.current_node + 1
     else
+        self.reachedEnd = false
         self:runTo(self.route[currentstep])
     end
 end

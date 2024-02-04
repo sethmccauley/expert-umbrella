@@ -13,8 +13,9 @@ StateController._allowedStates = S{
     'travel',
     'precombat',
     'combat',
+    'combat positioning',
     'postcombat',
-    'dead'
+    'dead',
 }
 
 function StateController:constructState()
@@ -110,6 +111,19 @@ function StateController:determineState(Player, Observer, Actions, Navigation, M
     local haveTargets = next(Observer.targets)
     local currentState = self.state
 
+    if self.state == 'combat positioning' then
+        if next(Observer.combat_positioning) ~= nil then
+            if Observer:distanceBetween(Player.mob, Observer.combat_positioning) < .6 then
+                Observer:setCombatPosition(nil,nil)
+                Observer:forceUnbusy()
+                self:setState('combat')
+            end
+        else
+            self:setState('combat')
+            return
+        end
+        return
+    end
 
     if self.state == 'combat' or (next(Observer.aggro) ~= nil or next(Observer.targets) ~= nil) then
         if self.state == 'combat' and next(Observer.aggro) == nil and next(Observer.targets) == nil then
@@ -138,7 +152,8 @@ function StateController:determineState(Player, Observer, Actions, Navigation, M
         if next(Navigation.route) ~= nil then
             if self.state ~= 'travel' then
                 if Navigation.current_node <= #Navigation.route then
-                    Navigation.current_node = Navigation:determineClosestWaypoint()
+                    Navigation:setNeedClosestNode(true)
+                    Navigation:update()
                 end
             end
             self:setState('travel')
