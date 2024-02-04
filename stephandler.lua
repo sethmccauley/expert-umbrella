@@ -562,25 +562,6 @@ function StepHandler:packetDelegate(id,data,modified,injected,blocked)
             self.observer:setCurrency('merits',  p['Param 1'])
         end
     end
-    if not self.switch then return end
-    if id == 0x034 or id == 0x032 then -- Incoming NPC interaction
-        local r_type = false
-        if self.awaitedPacket.active and not self.awaitedPacket.received then
-            local p = packets.parse('incoming',data)
-            if p['NPC Index'] == self.awaitedPacket.index then
-                self.awaitedPacket.received = true
-                r_type = self.awaitedPacket['return']
-                for i,v in pairs(p) do
-                    self.receivedPacket[i] = v
-                end
-            end
-        end
-        if r_type then
-            return r_type
-        else
-            return
-        end
-    end
 end
 function StepHandler:incomingTextDelegate(original, modified, original_mode, modified_mode, blocked)
     if not self.switch then return end
