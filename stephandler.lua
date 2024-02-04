@@ -338,7 +338,7 @@ function StepHandler:validateCondition(step, operation)
         ['haveitem'] = function(value)
             if not Utilities:isBlank(value) then
                 local resolved_item = Utilities.res.items:with('en',value:lower()) or Utilities.res.items:with('enl',value:lower()) or nil
-                if resolved_item and Utilities:haveItem(resolved_item) then return true end
+                if resolved_item and Utilities:haveItem(resolved_item.id) then return true end
             end
             return false
         end,
