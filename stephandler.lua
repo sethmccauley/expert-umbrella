@@ -251,6 +251,7 @@ function StepHandler:validateCondition(step, operation)
     local func_map = {
         ['pos'] = function(value)
             if next(value) ~= nil then
+                self.player:update()
                 if value.x and value.y and value.z and Observer:distanceBetween(value, self.player.mob) < 2 and Observer:differenceZ(value, self.player.mob) < 2 then
                     return true
                 end
@@ -259,6 +260,7 @@ function StepHandler:validateCondition(step, operation)
         end,
         ['posisnt'] = function(value)
             if next(value) ~= nil then
+                self.player:update()
                 if value.x and value.y and value.z and Observer:distanceBetween(value, self.player.mob) > 2 then
                     self.stepQueue[self.currentStep].triggered = true
                 end
