@@ -195,7 +195,6 @@ function StepHandler:handleStep()
     -- Action Success Test (if validate and have performed, test based on action type)
     if task.validation and next(task.validation) ~= nil and self.stepQueue[active_step].performed then
         local validation_success = self:validateCondition(task, 'validation')
-
         if validation_success then
             self.stepQueue[active_step].validated = true
             self.currentStep = self.currentStep + 1
@@ -252,7 +251,7 @@ function StepHandler:validateCondition(step, operation)
         ['pos'] = function(value)
             if next(value) ~= nil then
                 self.player:update()
-                if value.x and value.y and value.z and Observer:distanceBetween(value, self.player.mob) < 2 and Observer:differenceZ(value, self.player.mob) < 2 then
+                if value.x and value.y and value.z and Observer:distanceBetween(value, self.player.mob) < 3 and Observer:differenceZ(value, self.player.mob) < 3 then
                     return true
                 end
             end
@@ -261,7 +260,7 @@ function StepHandler:validateCondition(step, operation)
         ['posisnt'] = function(value)
             if next(value) ~= nil then
                 self.player:update()
-                if value.x and value.y and value.z and Observer:distanceBetween(value, self.player.mob) > 2 then
+                if value.x and value.y and value.z and Observer:distanceBetween(value, self.player.mob) > 3 then
                     self.stepQueue[self.currentStep].triggered = true
                 end
             end

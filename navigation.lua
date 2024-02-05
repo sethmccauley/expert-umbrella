@@ -41,6 +41,7 @@ function NavigationObject:setShortCourse(nodes)
     if type(nodes) ~= 'table' then return nil end
     self.route = nodes
     self.pause = 999999
+    self.start_time = 0
 end
 function NavigationObject:setMode(style)
     if type(style) ~= 'string' then return end
