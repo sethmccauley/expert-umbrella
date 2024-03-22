@@ -136,6 +136,87 @@ function Display:updateText(box_type)
         information.title = box_type:upper()
     end
 
+    if self.display_settings[box_type]['type'] == 'fucknyzul' then
+        head:append('\\cs('..self:labels(box_type)..')'..string.format('%10s','| ${title} | ')..'\\cr')
+        head:append('\\cs(150,200,150) Switch: \\cr'..string.format('%-10s','${switch|off} '))
+        head:append('\\cs(150,200,150) State: \\cr'..string.format('%-10s','${state|off} '))
+        head:append('\\cs(150,200,150) Time: \\cr'..string.format('%-10s', self.statecontroller.time_remaining))
+        head:append(' Sub Map: '..string.format('%s', self.statecontroller.current_submap))
+        head:append(' Floor Obj.: '..string.format('%-10s','${objective|None} '))
+
+        if windower.ffxi.get_info().zone == 77 then
+            head:append(' Completion: '..string.format('%-10s','${completion|0} '))
+
+            self.statecontroller.player:update()
+            head:append(' \\cs(249,236,236)Runes: \\cs(75,253,116)[')
+            for _,v in pairs(self.statecontroller.rune_info) do
+                if v and type(v) == 'table' and v['mob'] and v['mob'].x ~= nil and v['mob'].y ~= nil then
+                    local distance = Observer:distanceBetween(v['mob'], self.statecontroller.player.mob)
+                    local angle = Observer:getAngle(v['mob'])
+                    local direction = Observer:getCardinalDirection(angle)
+                    local temp = string.format("    \\cs(249,236,236) [Idx: %s  Dist.: %02.01f  Activated: %s  Dir: %s  Valid: %s ]", v['mob']["index"], distance, tostring(v["activated"]), direction, tostring(v.mob.valid_target))
+                    head:append(temp)
+                end
+            end
+            head:append(" \\cs(75,253,116)]")
+
+            if (self.statecontroller.current_floor_goal):contains('Lamps') then
+                head:append(' \\cs(249,236,236)Lamps: \\cs(75,253,116)[')
+                for _,v in pairs(self.statecontroller.current_floor_lamp_info) do
+                    if v and type(v) == 'table' and v['mob'] and v['mob'].x ~= nil and v['mob'].y ~= nil then
+                        local distance = Observer:distanceBetween(v['mob'], self.statecontroller.player.mob)
+                        local angle = Observer:getAngle(v['mob'])
+                        local direction = Observer:getCardinalDirection(angle)
+                        local temp = string.format("    \\cs(249,236,236) [Idx: %s  Dist.: %02.01f  Activated: %s  Dir: %s  Valid: %s ]", v['mob']["index"], distance, tostring(v["activated"]), direction, tostring(v.mob.valid_target))
+                        head:append(temp)
+                    end
+                end
+                head:append(" \\cs(75,253,116)]")
+            end
+
+            if (self.statecontroller.current_floor_goal):contains('Leader') then
+                head:append(' \\cs(249,236,236)Leader: \\cs(75,253,116)[')
+                for _,v in pairs(self.statecontroller.current_floor_enemy_leader) do
+                    if v and type(v) == 'table' and v['mob'] and v['mob'].x ~= nil and v['mob'].y ~= nil then
+                        local distance = Observer:distanceBetween(v['mob'], self.statecontroller.player.mob)
+                        local angle = Observer:getAngle(v['mob'])
+                        local direction = Observer:getCardinalDirection(angle)
+                        local temp = string.format("    \\cs(249,236,236) [Name: %s  Dist.: %02.01f Dir: %s  Valid: %s ]", v['mob']["name"], distance, direction, tostring(v.mob.valid_target))
+                        head:append(temp)
+                    end
+                end
+                head:append(" \\cs(75,253,116)]")
+            end
+
+            if self.statecontroller.current_floor_goal == 'Spec. Enemies' then
+                head:append(' \\cs(249,236,236)Leader: \\cs(75,253,116)[')
+                for _,v in pairs(self.statecontroller.current_floor_spec_enemies) do
+                    if v and type(v) == 'table' and v['mob'] and v['mob'].x ~= nil and v['mob'].y ~= nil then
+                        local distance = Observer:distanceBetween(v['mob'], self.statecontroller.player.mob)
+                        local angle = Observer:getAngle(v['mob'])
+                        local direction = Observer:getCardinalDirection(angle)
+                        local temp = string.format("    \\cs(249,236,236) [Name: %s  Dist.: %02.01f Dir: %s  Valid: %s ]", v['mob']["name"], distance, direction, tostring(v.mob.valid_target))
+                        head:append(temp)
+                    end
+                end
+                head:append(" \\cs(75,253,116)]")
+            end
+        end
+
+        information['switch'] = 'off'
+        if self.statecontroller.on_switch == 1 then
+            information['switch'] = 'on'
+            if windower.ffxi.get_info().zone == self.statecontroller._nyzulZone then
+                information['switch'] = 'on+'
+            end
+        end
+        information['state'] = self.statecontroller.state
+        information['objective'] = self.statecontroller.current_floor_goal .. ' ' .. self.statecontroller.current_floor_lamp_goal
+        information['completion'] = self.statecontroller.current_floor_goal_status
+
+        information['title'] = box_type:upper()
+    end
+
     if self.text_box[box_type] then
         self.text_box[box_type]:clear()
         self.text_box[box_type]:append(head:concat('\n'))

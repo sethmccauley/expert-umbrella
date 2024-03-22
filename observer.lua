@@ -253,13 +253,16 @@ function ObserverObject:pickNearest(mob_table)
 	local dist_target = 999
     local closest_index = 0
 	local marray = mob_table or self.targets or self:getMArray()
+    local player = self.player
+    player:update()
 
 	for k,v in pairs(marray) do
         local mob = {}
         if v.details then mob = v.details else mob = windower.ffxi.get_mob_by_index(v.index) end
-		if math.sqrt(mob['distance']) < dist_target then
+        local distance_to = self:distanceBetween(player.mob, mob)
+		if distance_to < dist_target then
 			closest_index = k
-			dist_target = math.sqrt(mob['distance'])
+			dist_target = distance_to
 		end
 	end
 
@@ -529,7 +532,7 @@ function ObserverObject:getMArray(names, loose)
     local target_names = T{}
     local wildcard = loose or false
 
-    if type(names) == 'table' then 
+    if type(names) == 'table' then
         for i,v in pairs(names) do
             target_names[i] = {['name'] = v:lower()}
         end
@@ -799,7 +802,41 @@ function ObserverObject:determinePointInSpace(target, distance, degrees)
 
     return new_x, new_y
 end
-
+function ObserverObject:getAngle(object_1, object_2)
+    local player = object_2 or self.player.mob
+    if object_1 and object_1.x and object_1.y and player then
+        local dx = object_1.x - player.x
+        local dy = object_1.y - player.y
+        local theta = math.atan2(dy, dx)
+        theta = theta * 180 / math.pi
+        if theta < 0 then
+            theta = theta + 360
+        end
+        return theta
+    end
+    return 0
+end
+function ObserverObject:getCardinalDirection(angle)
+    if angle then
+        if angle >= 337.5 or angle < 22.5 then
+            return "E"
+        elseif angle >= 22.5 and angle < 67.5 then
+            return "NE"
+        elseif angle >= 67.5 and angle < 112.5 then
+            return "N"
+        elseif angle >= 112.5 and angle < 157.5 then
+            return "NW"
+        elseif angle >= 157.5 and angle < 202.5 then
+            return "W"
+        elseif angle >= 202.5 and angle < 247.5 then
+            return "SW"
+        elseif angle >= 247.5 and angle < 292.5 then
+            return "S"
+        elseif angle >= 292.5 and angle < 337.5 then
+            return "SE"
+        end
+    end
+end
 function ObserverObject:queueCurrencyUpdate()
     local packet = packets.new('outgoing', 0x117, {["_unknown2"]=0})
     packets.inject(packet)
