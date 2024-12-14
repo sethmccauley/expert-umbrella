@@ -420,7 +420,7 @@ function Actions:isRecastReady(full_ability)
     if not self.player or not full_ability then return false end
 
     local needs_recast_id = true
-    if full_ability.prefix and Utilities:arrayContains(Actions.ws_castable_prefixes, full_ability.prefix) or full_ability.prefix == '/item' or full_ability.prefix == '/pos' then
+    if full_ability.prefix and Utilities:arrayContains(Actions.ws_castable_prefixes, full_ability.prefix) or full_ability.prefix == '/item' or full_ability.prefix == '/ra' or full_ability.prefix == '/pos' then
         needs_recast_id = false
     end
 

@@ -319,4 +319,13 @@ function Utilities:partyIsPresent()
     return false
 end
 
+function Utilities:stringExplode(str, delimiter)
+    local result = {}
+    local pattern = string.format("([^%s]+)", delimiter)
+    str:gsub(pattern, function(c)
+        table.insert(result, c)
+    end)
+    return result
+end
+
 return Utilities

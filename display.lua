@@ -138,9 +138,10 @@ function Display:updateText(box_type)
 
     if self.display_settings[box_type]['type'] == 'fucknyzul' then
         head:append('\\cs('..self:labels(box_type)..')'..string.format('%10s','| ${title} | ')..'\\cr')
-        head:append('\\cs(150,200,150) Switch: \\cr'..string.format('%-10s','${switch|off} '))
+        head:append('\\cs(150,200,150) Switch: \\cr'..string.format('%-10s','${switch|off} (${role|none})'))
         head:append('\\cs(150,200,150) State: \\cr'..string.format('%-10s','${state|off} '))
         head:append('\\cs(150,200,150) Time: \\cr'..string.format('%-10s', self.statecontroller.time_remaining))
+        head:append(' Floor: '..string.format('%-10s', self.statecontroller.current_floor))
         head:append(' Sub Map: '..string.format('%s', self.statecontroller.current_submap))
         head:append(' Floor Obj.: '..string.format('%-10s','${objective|None} '))
 
@@ -189,7 +190,7 @@ function Display:updateText(box_type)
             end
 
             if self.statecontroller.current_floor_goal == 'Spec. Enemies' then
-                head:append(' \\cs(249,236,236)Leader: \\cs(75,253,116)[')
+                head:append(' \\cs(249,236,236)Spec. Enemies: \\cs(75,253,116)[')
                 for _,v in pairs(self.statecontroller.current_floor_spec_enemies) do
                     if v and type(v) == 'table' and v['mob'] and v['mob'].x ~= nil and v['mob'].y ~= nil then
                         local distance = Observer:distanceBetween(v['mob'], self.statecontroller.player.mob)
@@ -201,6 +202,16 @@ function Display:updateText(box_type)
                 end
                 head:append(" \\cs(75,253,116)]")
             end
+
+            if next(self.statecontroller.current_floor_navigation_history) ~= nil then
+                head:append(' \\cs(249,236,236)Nav Hist.: \\cs(75,253,116)[')
+                local display_string = "\\cs(249,236,236)"
+                for _,v in pairs(self.statecontroller.current_floor_navigation_history) do
+                    display_string = display_string.. " [X:"..v.x.." Y:"..v.y.."] "
+                end
+                head:append(display_string)
+                head:append(" \\cs(75,253,116)]")
+            end
         end
 
         information['switch'] = 'off'
@@ -210,6 +221,7 @@ function Display:updateText(box_type)
                 information['switch'] = 'on+'
             end
         end
+        information['role'] = self.statecontroller.role
         information['state'] = self.statecontroller.state
         information['objective'] = self.statecontroller.current_floor_goal .. ' ' .. self.statecontroller.current_floor_lamp_goal
         information['completion'] = self.statecontroller.current_floor_goal_status
