@@ -175,6 +175,29 @@ function Utilities:determineResonation(packet, mob_obj)
         -- notice('JA Finish')
         -- notice(packet['Target 1 ID'])
     elseif packet['Category'] == 11 then -- NPC TP Finish
+        report.ability = Utilities.res.monster_abilities[packet.Param]
+        if report.ability and report.ability.skillchain_a and report.ability.skillchain_a ~= '' then
+            -- Skillchain Occured now resonating with sc
+            if packet['Target 1 Action 1 Has Added Effect'] and Utilities._skillchains[packet['Target 1 Action 1 Added Effect Message']] then
+                local reso = T{Utilities._skillchains[packet['Target 1 Action 1 Added Effect Message']]}
+                local step = mob_obj.resonating_step + 1
+                local window = (10 - mob_obj.resonating_step)
+                local time = os.clock()
+                mob_obj:setResonatingValues(reso, step, window, time)
+            elseif self:arrayContains({110,161,162,185,187}, packet['Target 1 Action 1 Message']) then -- WS without SC?
+                local reso = T{report.ability.skillchain_a,report.ability.skillchain_b,report.ability.skillchain_c}
+                local step = 1
+                local window = (10 - mob_obj.resonating_step)
+                local time = os.clock()
+                mob_obj:setResonatingValues(reso, step, window, time)
+            elseif packet['Target 1 Action 1 Message'] == 317 then -- No idea
+                local reso = T{report.ability.skillchain_a}
+                local step = mob_obj.resonating_step + 1
+                local window = (10 - mob_obj.resonating_step)
+                local time = os.clock()
+                mob_obj:setResonatingValues(reso, step, window, time)
+            end
+        end
         -- notice('NPC TP Finish')
         -- notice(packet['Target 1 ID'])
     elseif packet['Category'] == 13 then -- Avatar
