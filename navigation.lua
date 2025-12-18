@@ -12,7 +12,7 @@ function NavigationObject:constructNavigation(player_obj)
 
     self.route = {}
     self.pause = 0
-    self.current_node = 0
+    self.current_node = 1
     self.navigation_mode = 'loop'
     self.start_time = 0
 

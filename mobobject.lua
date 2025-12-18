@@ -45,7 +45,7 @@ function MobObject:setResonatingValues(t, step, window, time)
     self.resonating = t
     self.resonating_step = step
     if not window then self.resonating_window = (10 - self.resonating_step) else self.resonating_window = window end
-    if not time then self.resonating_start_time = os.clock else self.resonating_start_time = time end
+    if not time then self.resonating_start_time = os.clock() else self.resonating_start_time = time end
 end
 
 function MobObject:updateLastUpdateTime()
