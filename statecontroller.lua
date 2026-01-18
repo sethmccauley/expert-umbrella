@@ -27,15 +27,23 @@ function StateController:constructState()
 
     self.role = 'master'
     self.assist = nil
+    self.assist_last_pos = nil
+    self.catch_up_node_pushed = false
     self.last_assist_check = 0
 
+    self.allow_combat_movement = true
+    self.follow_master = true
+
     self.profile = nil
+    self.current_style = 'default'
     self.profile_file = ''
     self.route_file = ''
     self.targets_file = ''
     self.domain_file = ''
 
     self.on_switch = 0
+
+    self.frog = false
 
     return self
 end
@@ -68,12 +76,28 @@ function StateController:setRole(role, assist)
         self.assist = assist
     end
 end
-function StateController:setProfile(file_contents, file_name)
+function StateController:setProfile(file_contents, file_name, Actions)
     if type(file_contents) ~= 'table' then return false end
-    self.profile = file_contents
+
     if file_name and type(file_name) == 'string' then
         self.profile_file = file_name
     end
+
+    -- Check if new format, migrate if not
+    if not self:isNewStyleFormat(file_contents) then
+        file_contents = self:migrateToNewFormat(file_contents, file_name)
+    end
+
+    -- Merge global + default style into working profile
+    self.profile = self:mergeStyle(file_contents, 'default')
+    self.current_style = 'default'
+
+    -- Apply role/assist from merged profile
+    if self.profile.role and self.profile.assist and self.profile.assist ~= '' then
+        self:setRole('slave', self.profile.assist)
+    end
+
+    self.allow_combat_movement = self.profile.allow_combat_movement ~= false
 end
 function StateController:setRouteFile(file_name)
     if type(file_name) ~= 'string' then return false end
@@ -89,6 +113,14 @@ function StateController:setDomainFile(file_name)
 end
 function StateController:setLastAssistCheckTime()
     self.last_assist_check = os.clock()
+end
+function StateController:setFollowMaster(value)
+    if type(value) ~= 'boolean' then return nil end
+    self.follow_master = value
+end
+function StateController:setCombatMovement(value)
+    if type(value) ~= 'boolean' then return nil end
+    self.allow_combat_movement = value
 end
 
 function StateController:determineState(Player, Observer, Actions, Navigation, MobObject)
@@ -109,11 +141,11 @@ function StateController:determineState(Player, Observer, Actions, Navigation, M
 
     local haveAggro = next(Observer.aggro)
     local haveTargets = next(Observer.targets)
-    local currentState = self.state
+    local haveMTF = next(Observer.mob_to_fight)
 
     if self.state == 'combat positioning' then
         if next(Observer.combat_positioning) ~= nil then
-            if Observer:distanceBetween(Player.mob, Observer.combat_positioning) < .6 then
+            if Observer:distanceBetween(Player.mob, Observer.combat_positioning) < .7 then
                 Observer:setCombatPosition(nil,nil)
                 Observer:forceUnbusy()
                 self:setState('combat')
@@ -125,8 +157,14 @@ function StateController:determineState(Player, Observer, Actions, Navigation, M
         return
     end
 
-    if self.state == 'combat' or (next(Observer.aggro) ~= nil or next(Observer.targets) ~= nil) then
-        if self.state == 'combat' and next(Observer.aggro) == nil and next(Observer.targets) == nil then
+    -- Slave Adjustment
+    local shouldEnterCombat = (haveAggro ~= nil or haveTargets ~= nil or haveMTF ~= nil)
+    if self.role == 'slave' then
+        shouldEnterCombat = (haveMTF ~= nil)
+    end
+
+    if self.state == 'combat' or shouldEnterCombat then
+        if self.state == 'combat' and haveAggro == nil and haveTargets == nil and haveMTF == nil then
             self:setState('postcombat')
             return
         end
@@ -135,19 +173,19 @@ function StateController:determineState(Player, Observer, Actions, Navigation, M
     end
 
     -- This needs adjustment to include if the current target is an ignorable mob
-    if self.state == 'postcombat' or (self.state == 'combat' and next(Observer.aggro) == nil and next(Observer.targets) == nil and next(Observer.mob_to_fight) == nil) then
+    if self.state == 'postcombat' or (self.state == 'combat' and haveAggro == nil and haveTargets == nil and haveMTF == nil) then
         notice(Utilities:printTime()..' All targets dead.')
         Actions:emptyToUse()
+        Actions:emptyOncePerCombat()
+        if self.role == 'slave' then
+            Navigation:setShortCourse({})
+        end
         self:setState('idle')
         return
     end
 
     if self.state == 'idle' or self.state == 'travel' then
         Navigation:update()
-
-        if self.role == 'slave' then
-            self:determineSlaveTravel(Player, Observer, Navigation)
-        end
 
         if next(Navigation.route) ~= nil then
             if self.state ~= 'travel' then
@@ -163,51 +201,169 @@ function StateController:determineState(Player, Observer, Actions, Navigation, M
 
 end
 
-function StateController:determineSlaveState(Player, Observer, MobObject) -- Unused
-    if self.assist == nil and (os.clock() - self.last_assist_check) < 0.5 then return end
-
-    if Observer:inParty(self.assist) then
-        local mob = Observer:playersTarget(self.assist)
-        local assist_status = Observer:playersStatus(self.assist)
-
-        if mob and mob ~= 0 then
-            mob = MobObject:constructMob(mob)
-        end
-
-        if mob and mob ~= 0 then
-            if mob:isValidTarget(Player.mob) and mob:isAllianceClaimed(Observer.claim_ids) then
-                if assist_status == 1 then
-                    if not Utilities:arrayContains(Observer.aggro, mob.id) then
-                        notice(Utilities:printTime()..' Master found target '..mob.name..' '..mob.index..'')
-                        Observer:addToAggro(mob.id)
-                    end
-                end
-            else
-                if Utilities:arrayContains(Observer.aggro, mob.id) then
-                    for i,v in pairs(Observer.aggro) do
-                        if v.index == mob.index then Observer.aggro[i] = nil end
-                    end
-                end
-                if Observer.mob_to_fight and Observer.mob_to_fight.index == mob.index then
-                    Observer:setMobToFight(T{})
-                end
-            end
-        end
-    end
-    self:setLastAssistCheckTime()
-end
-
 function StateController:determineSlaveTravel(Player, Observer, Navigation)
     if self.assist == nil then return end
+    if Observer.multi_box_present and Observer.local_entities:contains(self.assist:lower()) then return end
 
-    if Observer:inParty(self.assist) then
+    if Observer:inParty(self.assist) and Observer:memberInZone(self.assist) then
+
         local assist_status = Observer:playersStatus(self.assist)
         local assist_pos = Observer:playersPos(self.assist)
 
-        if assist_pos then
-            Navigation.route[1] = {['x'] = assist_pos.x, ['y'] = assist_pos.y, ['z'] = assist_pos.z}
+        if not assist_pos then return end
+
+        local assist_height_difference = Navigation:heightDifference(assist_pos.z or 0)
+        -- First if they're on a different height than us don't attempt to chase after them. I guess.
+        if (assist_height_difference >= 8) then
+            return false
+        end
+        -- Second if they're too far away, don't attempt to track them. I guess.
+        local distance_to_assist = Navigation:distanceTo(assist_pos.x, assist_pos.y)
+        if distance_to_assist >= 30 then
+            return false
+        end
+
+        local assist_pos_difference = 0
+        if self.assist_last_pos then
+            assist_pos_difference = Navigation:distanceBetween(assist_pos, self.assist_last_pos)
+        else
+            self.assist_last_pos = assist_pos
+        end
+
+        if assist_pos and assist_pos_difference >= 2.75 then
+            self.assist_last_pos = assist_pos
+            Navigation:pushNode(assist_pos)
+            -- Navigation.route[1] = {['x'] = assist_pos.x, ['y'] = assist_pos.y, ['z'] = assist_pos.z}
+        elseif assist_pos_difference <= 0.4 and distance_to_assist > 4 and distance_to_assist < 30 then
+            if not self.catch_up_node_pushed then
+                local catch_up = {x = assist_pos.x, y = assist_pos.y, z = assist_pos.z, tolerance = 2.5}
+                Navigation:pushNode(catch_up)
+                self.catch_up_node_pushed = true
+            end
+        else
+            if assist_pos_difference >= 0.5 then
+                self.catch_up_node_pushed = false
+            end
+        end
+
+    end
+end
+
+function StateController:isNewStyleFormat(profile)
+    return profile and profile['global'] ~= nil
+end
+function StateController:getAvailableStyles()
+    -- Re-read raw profile from file
+    local raw_profile = require('data/'..self.profile_file)
+    package.loaded['data/'..self.profile_file] = nil
+
+    if not self:isNewStyleFormat(raw_profile) then return {'default'} end
+    local styles = {}
+    for key, _ in pairs(raw_profile) do
+        if key ~= 'global' then
+            table.insert(styles, key)
         end
     end
+    table.sort(styles)
+    return styles
+end
+function StateController:mergeStyle(profile, style_name)
+    if not self:isNewStyleFormat(profile) then return profile end
+
+    local global = profile['global'] or {}
+    local style = profile[style_name] or {}
+    local merged = {}
+
+    -- Copy all global settings first
+    for key, value in pairs(global) do
+        if type(value) == 'table' then
+            merged[key] = T(value):copy()
+        else
+            merged[key] = value
+        end
+    end
+
+    -- Override/merge with style-specific settings
+    for key, value in pairs(style) do
+        if type(value) == 'table' and type(merged[key]) == 'table' then
+            -- For arrays like combat/noncombat, concatenate style actions after global
+            if key == 'combat' or key == 'noncombat' or key == 'precombat' or key == 'postcombat' or key == 'trusts' then
+                for _, v in ipairs(value) do
+                    table.insert(merged[key], v)
+                end
+            else
+                -- For other tables, do a shallow merge
+                for k, v in pairs(value) do
+                    merged[key][k] = v
+                end
+            end
+        else
+            merged[key] = value
+        end
+    end
+
+    return merged
+end
+function StateController:migrateToNewFormat(profile, profile_file)
+    if self:isNewStyleFormat(profile) then return profile end
+
+    local new_format = {
+        ['global'] = profile,
+        ['default'] = {
+            ['combat'] = {},
+            ['noncombat'] = {}
+        }
+    }
+    local file = files.new('data/'..profile_file..'.lua')
+    file:write('return ' .. T(new_format):tovstring())
+    notice('Profile migrated to new styles format.')
+
+    return new_format
+end
+function StateController:applyStyle(style_name, Actions, Navigation)
+    -- Re-read raw profile from file
+    local raw_profile = require('data/'..self.profile_file)
+    package.loaded['data/'..self.profile_file] = nil
+
+    if not self:isNewStyleFormat(raw_profile) then
+        notice('Profile does not support styles. Please update your profile format.')
+        return false
+    end
+
+    local styles = self:getAvailableStyles()
+    local found = false
+    for _, s in ipairs(styles) do
+        if s == style_name then found = true break end
+    end
+
+    if not found then
+        notice('Style "'..style_name..'" not found.')
+        notice('Available styles: '..table.concat(styles, ', '))
+        return false
+    end
+
+    local merged = self:mergeStyle(raw_profile, style_name)
+    self.profile = merged
+    self.current_style = style_name
+
+    -- Apply profile settings
+    self.allow_combat_movement = merged.allow_combat_movement ~= false
+    if merged.role and merged.assist and merged.assist ~= '' then
+        self:setRole('slave', merged.assist)
+    end
+
+    -- Rebuild actions
+    Actions:setActionList(self.profile)
+
+    -- Re-apply slave settings if needed
+    if self.assist ~= nil and self.role == 'slave' then
+        Navigation.pause = 999999
+        Navigation.node_tolerance = 2
+        Navigation:setMode('slave')
+    end
+
+    notice('Style "'..style_name..'" applied.')
+    return true
 end
 
 return StateController

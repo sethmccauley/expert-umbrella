@@ -28,15 +28,33 @@ function MobObject:constructMob(mob_or_index)
     return self
 end
 
+function MobObject:getFlatCopy()
+    local flat = {}
+    if self.details then
+        for k, v in pairs(self.details) do
+            flat[k] = v
+        end
+    end
+    for k, v in pairs(self) do
+        if k ~= 'details' then
+            flat[k] = v
+        end
+    end
+    return flat
+end
 function MobObject:updateDetails()
     if not self.index then return nil end
 
-    -- if os.clock() - self.last_update_time < 0.1 then return nil end
+    if os.clock() - self.last_update_time < 0.1 then return end
 
     local mob = windower.ffxi.get_mob_by_index(self.index)
     if not mob then return nil end
 
     self.details = mob
+
+    if mob.claim_id and mob.claim_id > 0 and self.claimed_at_time == 0 then
+        self.claimed_at_time = os.clock()
+    end
 
     self:updateLastUpdateTime()
 end

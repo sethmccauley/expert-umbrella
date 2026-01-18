@@ -19,6 +19,7 @@ function NavigationObject:constructNavigation(player_obj)
     self.last_update_time = 0
     self.need_closest_node = false
 
+    self.last_pos = T{}
     self.node_tolerance = 2
 
     self.recording = false
@@ -39,9 +40,21 @@ function NavigationObject:setRoute(route_obj)
 end
 function NavigationObject:setShortCourse(nodes)
     if type(nodes) ~= 'table' then return nil end
+    if #nodes == 0 then
+        windower.ffxi.run(false)
+    end
     self.route = nodes
     self.pause = 999999
     self.start_time = 0
+end
+function NavigationObject:pushNode(node)
+    if type(node) ~= 'table' then return nil end
+    table.insert(self.route, node)
+end
+function NavigationObject:removeNode()
+    if #self.route > 0 then
+        table.remove(self.route, 1)
+    end
 end
 function NavigationObject:setMode(style)
     if type(style) ~= 'string' then return end
@@ -79,12 +92,17 @@ function NavigationObject:recordPosition(single)
     end
 end
 
-function NavigationObject:update()
+function NavigationObject:getCurrentPos()
     self.player:update()
+    return {['x'] = self.player.mob.x, ['y'] = self.player.mob.y, ['z'] = self.player.mob.z}
+end
 
+function NavigationObject:update()
     if os.clock() - self.last_update_time < 0.1 then return nil end
 
-    if self.need_closest_node == true then
+    self.player:update()
+
+    if self.need_closest_node == true  and self.navigation_mode ~= 'slave' then
         self.current_node = self:determineClosestWaypoint()
         self.need_closest_node = false
     end
@@ -210,12 +228,31 @@ function NavigationObject:runTrack(StateController)
         end
     end
 
-    if self:distanceTo(self.route[currentstep].x, self.route[currentstep].y) < self.node_tolerance then
-        if self.navigation_mode and self.navigation_mode == 'camp' then windower.ffxi.run(false) return end
-        self.current_node = self.current_node + 1
-    else
-        self.reachedEnd = false
-        self:runTo(self.route[currentstep])
+    if self.route[currentstep] then
+        local tolerance = self.route[currentstep].tolerance or self.node_tolerance
+        local distance_to = self:distanceTo(self.route[currentstep].x, self.route[currentstep].y)
+        if self.navigation_mode == 'slave' then
+            if distance_to > 45 then
+                return
+            end
+            if distance_to < tolerance then
+                self:removeNode()
+            end
+            if self.route[1] then
+                self:runTo(self.route[1])
+            else
+                windower.ffxi.run(false)
+                return
+            end
+        else
+            if distance_to < self.node_tolerance then
+                if self.navigation_mode and self.navigation_mode == 'camp' then windower.ffxi.run(false) return end
+                self.current_node = self.current_node + 1
+            else
+                self.reachedEnd = false
+                self:runTo(self.route[currentstep])
+            end
+        end
     end
 end
 function NavigationObject:runTo(target)

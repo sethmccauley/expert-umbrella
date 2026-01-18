@@ -13,8 +13,20 @@ function ObserverObject:constructObserver(player_obj)
 
     self.player = player_obj
     self.claim_ids = self:setPartyClaimIds()
+    self.party_pet_ids = T{}
+
     self.last_target_update_time = 0
-    self.party = self:setPartyMembers()
+    self.party = {
+        by_id = {},
+        by_name = {},
+    }
+    self.party_jobs = T{}
+
+    self.multi_box_present = false
+    self.local_entities = S{}
+    self.ipc_active = false
+
+    self.is_zoning = false
 
     self.aggro = T{}
     self.targets = T{}
@@ -39,6 +51,7 @@ function ObserverObject:constructObserver(player_obj)
     self.last_busy_start = 0
     self.last_engage_time = 0
     self.force_unbusy_time = 0.5
+    self.next_action_ready = 0
 
     self.attack_round_calc = 0
     self.last_attack_swing = 0
@@ -59,12 +72,15 @@ function ObserverObject:constructObserver(player_obj)
     self.merits = 0
     self.gil = 0
 
+    self:setPartyMembers()
+
     return self
 end
 
 function ObserverObject:setPartyClaimIds()
     local party_table = windower.ffxi.get_party()
     local party_ids = T{}
+    local party_pet_ids = T{}
 
     if party_table == nil then self.claim_ids = T{} return end
 
@@ -74,35 +90,49 @@ function ObserverObject:setPartyClaimIds()
             if member.mob.pet_index then
                 local pet = windower.ffxi.get_mob_by_index(member.mob.pet_index) or nil
                 if pet then
-                    party_ids:append(pet.id)
+                    party_pet_ids:append(pet.id)
                 end
             end
         end
     end
 
     self.claim_ids = party_ids
+    self.party_pet_ids = party_pet_ids
     return party_ids
+end
+function ObserverObject:getPartyPetIds()
+    return self.party_pet_ids
 end
 function ObserverObject:setPartyMembers()
     local party_table = windower.ffxi.get_party()
-    local party = T{}
+    local current_names = S{}
 
-    if party_table == nil then self.party = T{} return end
+    self.party.by_id = {}
+
+    if not party_table then return end
 
     for _,member in pairs(party_table) do
         if type(member) == 'table' and member.mob then
-            party:append(member)
+            self.party.by_id[member.mob.id] = member
+            current_names:add(member.name)
+
+            if not self.party.by_name[member.name] then
+                self.party.by_name[member.name] = {buffs = T{}, debuffs = T{}}
+            end
             if member.mob.pet_index then
-                local pet = windower.ffxi.get_mob_by_index(member.mob.pet_index) or nil
+                local pet = windower.ffxi.get_mob_by_index(member.mob.pet_index)
                 if pet then
-                    party:append(member)
+                    self.party.by_id[pet.id] = pet
                 end
             end
         end
     end
 
-    self.party = party
-    return party
+    for name in pairs(self.party.by_name) do
+        if not current_names:contains(name) then
+            self.party.by_name[name] = nil
+        end
+    end
 end
 function ObserverObject:setScanRange(value)
     if not value or value < 0 or value > 50 then return nil end
@@ -135,6 +165,10 @@ function ObserverObject:setMobToFight(target_mob)
     end
     if os.clock() - self.mtf_update_time < 0.75 then return nil end
 
+    if target_mob.mob and not target_mob.obj then
+        target_mob.obj = MobObject:constructMob(target_mob.index)
+        target_mob.obj:updateDetails()
+    end
     self.mtf_update_time = os.clock()
     self.mob_to_fight = target_mob
 end
@@ -168,6 +202,23 @@ function ObserverObject:setCombatPosition(x, y)
         return
     end
     self.combat_positioning = T{['x'] = x, ['y'] = y}
+end
+function ObserverObject:setIPCActive(value)
+    if type(value) ~= 'boolean' then return end
+    self.ipc_active = value
+end
+function ObserverObject:isIPCActive()
+    return self.ipc_active and self.multi_box_present
+end
+function ObserverObject:setMBP(value)
+    if type(value) ~= 'boolean' then return end
+    self.multi_box_present = value
+end
+function ObserverObject:isMBP()
+    return self.multi_box_present
+end
+function ObserverObject:setActionDelay(action_type, --[[optional]]override)
+    self.next_action_ready = os.clock() + (override or Utilities._global_delays[action_type] or 2.0)
 end
 
 function ObserverObject:setCurrency(currency_type, value)
@@ -284,55 +335,66 @@ function ObserverObject:determineTarget(Actions, StateController)
 
     if self:timeSinceLastAttackPkt() < 4 then return end
 
-    local hasCurrentTarget = self:hasCurrentTarget()
     -- Slave Targeting Considerations
     if StateController.role == 'slave' then
         if StateController.assist == nil then return end
-        if (os.clock() - StateController.last_assist_check) < 0.5 then return end
 
-        if self:inParty(StateController.assist) then
-            hasCurrentTarget = self:playersTarget(StateController.assist)
-            local assist_status = self:playersStatus(StateController.assist)
+        local is_local_slave = self:isMBP() and self.local_entities:contains(StateController.assist)
 
-            if hasCurrentTarget and hasCurrentTarget ~= 0 then
-                if assist_status == 1 then
-                    local potential_target = MobObject:constructMob(hasCurrentTarget)
-                    if potential_target:isValidTarget(self.player.mob) and potential_target:isAllianceClaimed(self.claim_ids) then
-                        if not Utilities:arrayContains(self.aggro, hasCurrentTarget) then
-                            -- notice(Utilities:printTime()..' Master found target '..hasCurrentTarget..' adding to aggro table.')
-                            self:addToAggro(potential_target.id)
-                        end
-                        if self.mob_to_fight and self.mob_to_fight.obj then
-                            if self.mob_to_fight.obj.claimed_at_time and self.mob_to_fight.obj.claimed_at_time == 0 then
-                                self.mob_to_fight.obj.claimed_at_time = os.clock()
+        --  NON IPC Assist Target Checking
+        if not is_local_slave then
+            if (os.clock() - StateController.last_assist_check) < 0.5 then return end -- Throttled
+            if self:inParty(StateController.assist) then
+                local master_target_index = self:playersTarget(StateController.assist)
+                local assist_status = self:playersStatus(StateController.assist)
+
+                if master_target_index and master_target_index ~= 0 then
+                    if assist_status == 1 then -- Master is Engaged
+                        local potential_target = MobObject:constructMob(master_target_index)
+                        if potential_target:isValidTarget(self.player.mob) and potential_target:isAllianceClaimed(self.claim_ids) then
+                            if not Utilities:arrayContains(self.aggro, potential_target.id) then
+                                self:addToAggro(potential_target.id)
+                            end
+                            if next(self.mob_to_fight) == nil or (self.mob_to_fight.index and self.mob_to_fight.index ~= master_target_index) then
+                                self:setMobToFight(T{['name'] = potential_target.name, ['index'] = potential_target.index, ['obj'] = potential_target})
+                                Actions:emptyOncePerTables()
+                            end
+                        else
+                            -- Somehow master's target invalid
+                            if Utilities:arrayContains(self.aggro, potential_target.id) then
+                                for i,v in pairs(self.aggro) do
+                                    if v.index == potential_target.index then
+                                        self.aggro[i] = nil
+                                        break
+                                    end
+                                end
+                            end
+                            if self.mob_to_fight and self.mob_to_fight.index == potential_target.index then
+                                self:setMobToFight(T{})
                             end
                         end
                     else
-                        if Utilities:arrayContains(self.aggro, potential_target.id) then
-                            for i,v in pairs(self.aggro) do
-                                if v.index == potential_target.index then self.aggro[i] = nil end
-                            end
+                        if next(self.aggro) ~= nil then
+                            self:setAggroEmpty()
                         end
-                        if self.mob_to_fight and self.mob_to_fight.index == potential_target.index then
-                            -- notice(Utilities:printTime()..' clearing Mob to fight due to invalid mob')
+                        if next(self.mob_to_fight) ~= nil then
                             self:setMobToFight(T{})
                         end
-                    end
-                else
-                    if next(self.aggro) ~= nil then
-                        -- notice(Utilities:printTime()..' clearing aggro as assist target is idle')
-                        self:setAggroEmpty()
-                    end
-                    if next(self.mob_to_fight) ~= nil then
-                        -- notice(Utilities:printTime()..' clearing mob to fight as assist target is idle')
-                        self:setMobToFight(T{})
+                        if self.player and self.player.status == 1 and Actions.mirror_masters_engage then
+                            self:setAggroEmpty()
+                            self:setMobToFight(T{})
+                            Actions:disengageMob()
+                        end
                     end
                 end
             end
         end
         StateController:setLastAssistCheckTime()
+        return
     end
 
+    -- IPC Slave Logic
+    local hasCurrentTarget = self:hasCurrentTarget()
     -- MTF is Empty
     if next(self.mob_to_fight) == nil then
         if hasCurrentTarget ~= 0 then
@@ -342,6 +404,9 @@ function ObserverObject:determineTarget(Actions, StateController)
                     -- notice(Utilities:printTime()..' setting mob to fight NIL MTF, VALID CT, Engaged')
                     self:setMobToFight(T{['name'] = possible_target.name, ['index'] = possible_target.index, ['obj'] = possible_target})
                     Actions:emptyOncePerTables()
+                    if self:isMBP() and StateController.role == 'master' and possible_target and possible_target.index then
+                        Utilities.sendIPC('mtf '..possible_target.index, self.player.name)
+                    end
                     return
                 end
             end
@@ -350,26 +415,37 @@ function ObserverObject:determineTarget(Actions, StateController)
         if next(self.targets) == nil then
             if next(self.aggro) ~= nil then
                 -- notice(Utilities:printTime()..' setting mob to fight from nearest aggro table')
-                self:setMobToFight(self:pickNearest(self.aggro))
+                local nearest_mob = self:pickNearest(self.aggro)
+                self:setMobToFight(nearest_mob)
                 Actions:emptyOncePerTables()
+                if self:isMBP() and StateController.role == 'master' and nearest_mob and nearest_mob.index then
+                    Utilities.sendIPC('mtf '..nearest_mob.index, self.player.name)
+                end
             end
         else
             -- notice(Utilities:printTime()..' setting mob to fight from nearest target table')
-            self:setMobToFight(self:pickNearest(self.targets))
+            local nearest_mob = self:pickNearest(self.targets)
+            self:setMobToFight(nearest_mob)
             Actions:emptyOncePerTables()
+            if self:isMBP() and StateController.role == 'master' and nearest_mob and nearest_mob.index then
+                Utilities.sendIPC('mtf '..nearest_mob.index, self.player.name)
+            end
         end
     else
-    -- MTF is Populated, Check for current Target
+        -- MTF is Populated, Check for current Target
         if hasCurrentTarget ~= 0 then
             -- Test for MTF ~= CT
             if self.mob_to_fight and self.mob_to_fight.index and self.mob_to_fight.index ~= hasCurrentTarget then
                 if self.player.status == 1 then
                     local possible_target = MobObject:constructMob(hasCurrentTarget)
                     if possible_target and possible_target:isValidTarget(self.player.mob) and possible_target:isAllianceClaimed(self.claim_ids) then
-                            notice(Utilities:printTime()..' setting mob to fight MTF ~= CT, VALID CT, Engaged')
-                            notice(T(possible_target):tovstring())
+                        notice(Utilities:printTime()..' setting mob to fight MTF ~= CT, VALID CT, Engaged')
+                        notice(T(possible_target):tovstring())
                         self:setMobToFight(T{['name'] = possible_target.name, ['index'] = possible_target.index, ['obj'] = possible_target})
                         Actions:emptyOncePerTables()
+                        if self:isMBP() and StateController.role == 'master' and possible_target and possible_target.index then
+                            Utilities.sendIPC('mtf '..possible_target.index, self.player.name)
+                        end
                     end
                 end
             end
@@ -390,14 +466,93 @@ function ObserverObject:clearMobToFight()
     self.mob_to_fight = T{}
 end
 
-function ObserverObject:validTargetable(name)
-
+function ObserverObject:registerIPCEntities()
+    Utilities:sendIPC('register', self.player.name)
+end
+function ObserverObject:addLocalEntity(name)
+    -- Check if the set HAS the name, if not add it and respond
+    if name ~= nil and not self.local_entities:contains(name) then
+        self.local_entities:add(name:lower())
+        self.multi_box_present = true
+    end
+end
+function ObserverObject:removeLocalEntity(name)
+    if self.local_entities:contains(name) then
+        self.local_entities:remove(name)
+    end
+end
+function ObserverObject:hasLocalEntities()
+    return self.local_entities:empty()
 end
 
 function ObserverObject:updateParty()
-    -- Update alliance entries here as well
+    self:setPartyMembers()
+
     self.claim_ids = self:setPartyClaimIds()
+
+    local remove_me = {}
+    for name, _ in pairs(self.party_jobs) do
+        if not self.party.by_name[name] then
+            table.insert(remove_me, name)
+        end
+    end
+    for _, name in ipairs(remove_me) do
+        self.party_jobs[name] = nil
+    end
 end
+function ObserverObject:updatePartyJobs(id,data,modified,injected)
+    local p = packets.parse('incoming', data)
+    if not self.claim_ids:contains(p['ID']) then return end
+    local resolved_name = windower.ffxi.get_mob_by_index(p['Index']).name
+    if not resolved_name then return end
+    local found_trust = 0
+    for i,v in pairs(Utilities._trust_job_list) do
+        if v.name:lower() == resolved_name:lower() then
+            found_trust = i
+            break
+        end
+    end
+    if found_trust > 0 then
+        self.party_jobs[resolved_name] = {['main'] = Utilities._job_ids[Utilities._trust_job_list[found_trust].mjob]}
+    else
+        self.party_jobs[resolved_name] = {['main'] = Utilities._job_ids[p['Main job']], ['sub'] = Utilities._job_ids[p['Sub job']]}
+    end
+end
+function ObserverObject:updatePartyBuffs(id,data,modified,injected)
+    for  k = 0, 4 do
+        local member_id = data:unpack('I', k*48+5)
+        if member_id ~= 0 then
+            local member = self.party.by_id[member_id]
+            if member and member.name then
+                local buffs = T{}
+                for i = 1, 32 do
+                    local buff = data:byte(k*48+5+16+i-1) + 256*( math.floor( data:byte(k*48+5+8+ math.floor((i-1)/4)) / 4^((i-1)%4) )%4) -- Credit: Byrth, GearSwap
+                    if buff ~= 255 and buff ~= 0 then
+                        buffs:append(buff)
+                    end
+                end
+                if self.party.by_name[member.name] then
+                    self.party.by_name[member.name].buffs = buffs
+                end
+            end
+        end
+    end
+end
+function ObserverObject:partyContains(job_name, --[[optional]]type)
+    local which = type or 'main'
+    for i,v in pairs(self.party_jobs) do
+        if v and v.main then
+            if which == 'main' and v.main and v.main.short:lower() == job_name:lower() then
+                return true
+            end
+            if which == 'sub' and v.sub and v.sub.short:lower() == job_name:lower() then
+                return true
+            end
+        end
+    end
+    return false
+end
+
 function ObserverObject:hasBit(data, x)
     return data:unpack('q', math.floor(x/8)+1, x%8+1)
 end
@@ -421,13 +576,11 @@ function ObserverObject:storeBuffDurationRemaining(id,data,modified,injected)
                 self.player.buff_durations[i] = { id = status_id }
             end
         end
-
         for i = 1, 32 do
             if self.player.buff_durations[i] then
                 local index = 0x49 + ((i-1) * 0x04)
                 local endtime = data:unpack('I', index)
-
-                if endtime <= 4 then
+                if endtime <= 3 then
                     self.player.buff_durations[i] = nil
                 else
                     self.player.buff_durations[i].endtime = math.floor(self:fromServerTime(endtime))
@@ -435,31 +588,9 @@ function ObserverObject:storeBuffDurationRemaining(id,data,modified,injected)
             end
         end
     end
-    -- if id == 0x037 then
-    --     local p = packets.parse('incoming', data)
-    --     if p['Timestamp'] and p['Time offset?'] then
-    --         local vana_time = p['Timestamp'] * 60 - math.floor(p['Time offset?'])
-    --         self.server_offset = math.floor(os.time() - vana_time % 0x100000000 / 60)
-    --     end
-
-    --     for i = 1, 32 do
-    --         local index = 0x05 + (i-1)
-    --         local status_id = data:unpack('b8', index)
-
-    --         if status_id ~= 255 then
-    --             self.player.buff_durations[i] = { id = status_id }
-    --         end
-    --     end
-
-    --     for i = 1, 32 do
-    --         local index = 0x04C * 8 + (i-1)*2
-    --         local n = self:hasBit(data, index) and 1 or 0
-    --         n = n + (self:hasBit(data, index + 1) and 2 or 0)
-    --         if self.player.buff_durations[i] then
-    --             self.player.buff_durations[i].id = self.player.buff_durations[i].id + n*256
-    --         end
-    --     end
-    -- end
+end
+function ObserverObject:parsePartyBuffs()
+    -- TODO
 end
 
 function ObserverObject:setAllyDependency(ally_name)
@@ -669,6 +800,9 @@ function ObserverObject:canFight(mob_obj)
 
     return false
 end
+function ObserverObject:canAct()
+    return os.clock() >= self.next_action_ready
+end
 function ObserverObject:notifyMobDeath(id,data,modified,injected,blocked, Actions)
     local p = packets.parse('incoming',data)
     local target_id = p['Target'] --data:unpack('I',0x09)
@@ -676,6 +810,10 @@ function ObserverObject:notifyMobDeath(id,data,modified,injected,blocked, Action
     local target_index = p['Target Index']
     local message_id = p['Message']
     local party_ids = self:setPartyClaimIds()
+
+    if message_id == 17 or message_id == 18 then -- Unable to cast?
+        self:setActionDelay('spell', 1)
+    end
 
     if message_id == 6 or message_id == 20 then -- Dies or Falls
 
@@ -708,6 +846,20 @@ function ObserverObject:inParty(name)
         local member = party['p'..i]
         if member ~= nil then
             if member.name:lower() == name:lower() then
+                return true
+            end
+        end
+    end
+	return false
+end
+function ObserverObject:memberInZone(name)
+	local name = name or 'None'
+	local party = windower.ffxi.get_party()
+
+    for i = 0,5 do
+        local member = party['p'..i]
+        if member ~= nil then
+            if member.name:lower() == name:lower() and member.zone == windower.ffxi.get_info().zone then
                 return true
             end
         end
