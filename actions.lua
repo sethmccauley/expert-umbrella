@@ -984,6 +984,15 @@ function Actions:resolveTarget(target_string, ability_res, observer_obj)
     end
     -- A simple target string. Easy.
     if target_strings:contains(target_lower) then
+        if target_lower == 't' or target_lower == 'bt' then
+            -- Should be the MTF!
+            if observer_obj and observer_obj.mob_to_fight and observer_obj.mob_to_fight.obj then
+                local resolved_copy = Utilities:shallowCopy(observer_obj.mob_to_fight.obj.details)
+                resolved = Utilities:shallowMerge(resolved_copy, observer_obj.mob_to_fight.obj)
+                resolved.targe_type_string = 'Enemy'
+                return resolved
+            end
+        end
         resolved = windower.ffxi.get_mob_by_target(target_lower)
         local target_type = self:resolveTargetType(resolved)
         local valid = ability_res.targets[target_type] == true

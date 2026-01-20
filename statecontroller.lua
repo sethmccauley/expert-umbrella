@@ -42,6 +42,7 @@ function StateController:constructState()
     self.domain_file = ''
 
     self.on_switch = 0
+    self.zoning = false
 
     self.frog = false
 
@@ -121,6 +122,10 @@ end
 function StateController:setCombatMovement(value)
     if type(value) ~= 'boolean' then return nil end
     self.allow_combat_movement = value
+end
+function StateController:setZoning(value)
+    if type(value) ~= 'boolean' then return nil end
+    self.zoning = value
 end
 
 function StateController:determineState(Player, Observer, Actions, Navigation, MobObject)

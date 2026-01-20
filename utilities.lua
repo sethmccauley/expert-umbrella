@@ -733,9 +733,13 @@ function Utilities:receiveIPC(from, cmd, args, Observer, StateController, Naviga
 
     local func_map = {
         ['pos'] = function(args)
-                    if #args < 3 then return false end
+                    if #args < 1 then return false end
+                    local packed = args[1]:parse_hex()
+                    local zone_id, x, y, z = packed:unpack('Hfff', 1)
+                    local my_zone = windower.ffxi.get_info().zone
+                    if zone_id ~= my_zone then return false end
                     if StateController.assist and Observer:inParty(StateController.assist) and Observer:memberInZone(StateController.assist) and StateController.follow_master == true then
-                        StateController.assist_last_pos = T{['x'] = args[1], ['y'] = args[2], ['z'] = args[3], ['tolerance'] = .33}
+                        StateController.assist_last_pos = T{['x'] = x, ['y'] = y, ['z'] = z, ['tolerance'] = .33}
                         Navigation:pushNode(StateController.assist_last_pos)
                     end
                 end,

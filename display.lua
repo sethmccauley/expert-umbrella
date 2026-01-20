@@ -407,6 +407,38 @@ function Display:destroy()
     end
 end
 
+function Display:hideAll()
+    for _, v in pairs(self.text_box) do
+        v:hide()
+    end
+    for _, disp in pairs(self.image_displays) do
+        for _, img in pairs(disp.images) do
+            img:hide()
+        end
+        if disp.drag_overlay then disp.drag_overlay:hide() end
+        if disp.name_text then disp.name_text:hide() end
+        if disp.info_text then disp.info_text:hide() end
+    end
+end
+
+function Display:showAll()
+    for box_type, _ in pairs(self.text_box) do
+        if self.display_settings[box_type] and self.display_settings[box_type].visible then
+            self.text_box[box_type]:show()
+        end
+    end
+    for box_type, disp in pairs(self.image_displays) do
+        if self.display_settings[box_type] and self.display_settings[box_type].visible then
+            for _, img in pairs(disp.images) do
+                img:show()
+            end
+            if disp.drag_overlay then disp.drag_overlay:show() end
+            if disp.name_text then disp.name_text:show() end
+            if disp.info_text then disp.info_text:show() end
+        end
+    end
+end
+
 function Display:createImageElement(box_type, key, texture_file, pos_x, pos_y, x_offset, y_offset, width, height, alpha, asset_path)
     local img = Display.images.new({
         texture = {path = asset_path .. texture_file},
