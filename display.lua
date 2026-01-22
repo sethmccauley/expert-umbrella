@@ -429,12 +429,17 @@ function Display:showAll()
     end
     for box_type, disp in pairs(self.image_displays) do
         if self.display_settings[box_type] and self.display_settings[box_type].visible then
-            for _, img in pairs(disp.images) do
-                img:show()
+            for key, img in pairs(disp.images) do
+                if #key >= 3 and key:sub(1,3) == 'pos' then
+
+                else
+                    img:show()
+                end
             end
             if disp.drag_overlay then disp.drag_overlay:show() end
             if disp.name_text then disp.name_text:show() end
             if disp.info_text then disp.info_text:show() end
+            self:updateImageDisplay(box_type)
         end
     end
 end
