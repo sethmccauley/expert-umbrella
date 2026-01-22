@@ -1593,7 +1593,7 @@ function Actions:handleActionNotification(act, player, observer, statecontroller
         if category == 8 then -- Interrupted Casting
             if param == 28787 then
                 notice('Interrupted.')
-                observer_obj:setActionDelay('spell', 2)
+                observer:setActionDelay('spell', 2)
                 coroutine.schedule(function() observer:forceUnbusy() end, 2)
             end
         end
