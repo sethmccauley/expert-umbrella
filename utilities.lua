@@ -731,34 +731,47 @@ function Utilities:receiveIPC(from, cmd, args, Observer, StateController, Naviga
 
     if StateController.on_switch == 0 and (cmd ~= 'acknowledge' and cmd ~= 'register') then return end
 
+    -- Helper to check if message is from our designated assist target
+    local function isFromAssist()
+        return StateController.role == 'slave'
+            and StateController.assist
+            and from:lower() == StateController.assist:lower()
+    end
+
     local func_map = {
         ['pos'] = function(args)
+                    if not isFromAssist() then return false end
                     if #args < 1 then return false end
                     local packed = args[1]:parse_hex()
                     local zone_id, x, y, z = packed:unpack('Hfff', 1)
                     local my_zone = windower.ffxi.get_info().zone
                     if zone_id ~= my_zone then return false end
-                    if StateController.assist and Observer:inParty(StateController.assist) and Observer:memberInZone(StateController.assist) and StateController.follow_master == true then
+                    if Observer:inParty(StateController.assist) and Observer:memberInZone(StateController.assist) and StateController.follow_master == true then
                         StateController.assist_last_pos = T{['x'] = x, ['y'] = y, ['z'] = z, ['tolerance'] = .33}
                         Navigation:pushNode(StateController.assist_last_pos)
                     end
                 end,
         ['register'] = function()
-                        self:sendIPC('acknowledge', Observer.player.name)
+                        self:sendIPC('acknowledge', Observer.entities.me.name)
                     end,
+        ['acknowledge'] = function() end,
         ['mtf'] = function(args)
+                    if not isFromAssist() then return end
                     if not args[1] then return end
-                    notice('Was told by '..from..' about a mtf '..args[1])
-                    local index = tonumber(args[1])
-                    local mob = windower.ffxi.get_mob_by_index(index)
-                    if mob then
-                        Observer:setMobToFight({['name'] = mob.name, ['index'] = index, ['mob'] = mob})
-                        Actions:emptyOncePerTables()
-                        Navigation:setShortCourse({})
+                    if Observer:inParty(StateController.assist) and Observer:memberInZone(StateController.assist) then
+                        local index = tonumber(args[1])
+                        local mob = windower.ffxi.get_mob_by_index(index)
+                        if mob and mob.id then
+                            notice('Was told by '..from..' about a mtf '..mob.name..' ('..index..')')
+                            Observer:setMobToFight(mob.id)
+                            Actions:emptyOncePerTables()
+                            Navigation:setShortCourse({})
+                        end
                     end
                 end,
         ['engage'] = function(value) end,
         ['follow'] = function(args)
+                        if not isFromAssist() then return end
                         local new_val
                         if not args or #args == 0 then
                             new_val = not StateController.follow_master
@@ -768,7 +781,8 @@ function Utilities:receiveIPC(from, cmd, args, Observer, StateController, Naviga
                         StateController:setFollowMaster(new_val)
                     end,
         ['disengage'] = function()
-                            if next(Observer.mob_to_fight) ~= nil then
+                            if not isFromAssist() then return end
+                            if Observer.entities.mtf ~= nil then
                                 Observer:setMobToFight(T{})
                                 Observer:setAggroEmpty()
                                 Actions:disengageMob()
@@ -777,7 +791,10 @@ function Utilities:receiveIPC(from, cmd, args, Observer, StateController, Naviga
                         end,
     }
 
-    Observer:addLocalEntity(from)
+    -- Only track local entities if we're a slave following this sender
+    if isFromAssist() then
+        Observer:addLocalEntity(from)
+    end
 
     if func_map[cmd] then
         func_map[cmd](args)

@@ -144,9 +144,9 @@ function StateController:determineState(Player, Observer, Actions, Navigation, M
     --  Aggro Table, Targets table, mob_to_fight are empty and post combat actions have been processed.
     --      *Clear noncombat (once per) table when moving to combat
 
-    local haveAggro = next(Observer.aggro)
-    local haveTargets = next(Observer.targets)
-    local haveMTF = next(Observer.mob_to_fight)
+    local haveAggro = Observer.entities:hasAggro()
+    local haveTargets = Observer.entities:hasTargets()
+    local haveMTF = Observer.entities:hasMTF()
 
     if self.state == 'combat positioning' then
         if next(Observer.combat_positioning) ~= nil then
@@ -163,13 +163,13 @@ function StateController:determineState(Player, Observer, Actions, Navigation, M
     end
 
     -- Slave Adjustment
-    local shouldEnterCombat = (haveAggro ~= nil or haveTargets ~= nil or haveMTF ~= nil)
+    local shouldEnterCombat = (haveAggro ~= false or haveTargets ~= false or haveMTF ~= false)
     if self.role == 'slave' then
-        shouldEnterCombat = (haveMTF ~= nil)
+        shouldEnterCombat = (haveMTF ~= false)
     end
 
     if self.state == 'combat' or shouldEnterCombat then
-        if self.state == 'combat' and haveAggro == nil and haveTargets == nil and haveMTF == nil then
+        if self.state == 'combat' and haveAggro == false and haveTargets == false and haveMTF == false then
             self:setState('postcombat')
             return
         end
@@ -178,7 +178,7 @@ function StateController:determineState(Player, Observer, Actions, Navigation, M
     end
 
     -- This needs adjustment to include if the current target is an ignorable mob
-    if self.state == 'postcombat' or (self.state == 'combat' and haveAggro == nil and haveTargets == nil and haveMTF == nil) then
+    if self.state == 'postcombat' or (self.state == 'combat' and haveAggro == false and haveTargets == false and haveMTF == false) then
         notice(Utilities:printTime()..' All targets dead.')
         Actions:emptyToUse()
         Actions:emptyOncePerCombat()

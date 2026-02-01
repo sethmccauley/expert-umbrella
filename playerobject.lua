@@ -42,7 +42,23 @@ function PlayerObject:constructPartyPC(member)
     self.is_trust = (member.mob.spawn_type == 14)
     self.mob = member.mob
 
+    -- Job tracking (populated via packet 0x0DF)
+    self.main_job = nil     -- {english, short} from Utilities._job_ids
+    self.sub_job = nil
+
+    -- Buff tracking (populated via packet 0x076)
+    self.buffs = T{}
+
     return self
+end
+
+function PlayerObject:setJobs(main_job, sub_job)
+    self.main_job = main_job
+    self.sub_job = sub_job
+end
+
+function PlayerObject:setBuffs(buffs)
+    self.buffs = buffs or T{}
 end
 
 function PlayerObject:setLastUpdateTime()

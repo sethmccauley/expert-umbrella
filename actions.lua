@@ -3,6 +3,7 @@ Actions.__index = Actions
 local Utilities = require('lang/utilities')
 local Observer = require('lang/observer')
 local MobObject = require('lang/mobobject')
+local ActionQueue = require('lang/actionqueue')
 
 Actions.range_mult = {
     [0] = 1,
@@ -191,6 +192,14 @@ Actions.condition_funcs = {
             if type(value) == 'string' and value:lower() == 'pet' then
                 return ctx.pet == nil
             end
+            -- For party members, check their buffs via EntityStore
+            if ctx.target_type == 'Party' and ctx.entities and ctx.effective_target_id then
+                local party_member = ctx.entities:getPlayer(ctx.effective_target_id)
+                if party_member and party_member.hasBuff then
+                    return not party_member:hasBuff(value)
+                end
+            end
+            -- Default: check self
             return not ctx.self.player:hasBuff(value)
         end
     },
@@ -203,6 +212,14 @@ Actions.condition_funcs = {
                 end
                 return ctx.pet ~= nil
             end
+            -- For party members, check their buffs via EntityStore
+            if ctx.target_type == 'Party' and ctx.entities and ctx.effective_target_id then
+                local party_member = ctx.entities:getPlayer(ctx.effective_target_id)
+                if party_member and party_member.hasBuff then
+                    return party_member:hasBuff(value)
+                end
+            end
+            -- Default: check self
             return ctx.self.player:hasBuff(value)
         end
     },
@@ -240,10 +257,10 @@ Actions.condition_funcs = {
         end
     },
     ['inqueue'] = {
-        func = function(ctx, value) return Utilities:arrayContains(ctx.self.to_use, value) end
+        func = function(ctx, value) return ctx.self.to_use:contains(value) end
     },
     ['notinqueue'] = {
-        func = function(ctx, value) return not Utilities:arrayContains(ctx.self.to_use, value) end
+        func = function(ctx, value) return not ctx.self.to_use:contains(value) end
     },
     ['strengthlt'] = {
         allowed_targets = S{'Self','Party'},
@@ -288,17 +305,15 @@ Actions.condition_funcs = {
     },
     ['aggrotablegt'] = {
         func = function(ctx, value)
-            if not ctx.observer_obj or not ctx.observer_obj.aggro then return false end
-            local count = 0
-            for _ in pairs(ctx.observer_obj.aggro) do count = count + 1 end
+            if not ctx.observer_obj or not ctx.observer_obj.entities then return false end
+            local count = ctx.observer_obj.entities:countAggro()
             return count > value
         end
     },
     ['aggrotablelt'] = {
         func = function(ctx, value)
-            if not ctx.observer_obj or not ctx.observer_obj.aggro then return false end
-            local count = 0
-            for _ in pairs(ctx.observer_obj.aggro) do count = count + 1 end
+            if not ctx.observer_obj or not ctx.observer_obj.entities then return false end
+            local count = ctx.observer_obj.entities:countAggro()
             return count < value
         end
     },
@@ -318,14 +333,26 @@ Actions.condition_funcs = {
     },
     ['mainjobinparty'] = {
         func = function(ctx, value)
-            if not value or not ctx.observer_obj then return false end
-            return ctx.observer_obj:partyContains(value, 'main')
+            if not value or not ctx.entities then return false end
+            return ctx.entities:partyContainsJob(value, 'main')
         end
     },
     ['mainjobnotinparty'] = {
         func = function(ctx, value)
-            if not value or not ctx.observer_obj then return false end
-            return not ctx.observer_obj:partyContains(value, 'main')
+            if not value or not ctx.entities then return false end
+            return not ctx.entities:partyContainsJob(value, 'main')
+        end
+    },
+    ['subjobinparty'] = {
+        func = function(ctx, value)
+            if not value or not ctx.entities then return false end
+            return ctx.entities:partyContainsJob(value, 'sub')
+        end
+    },
+    ['subjobnotinparty'] = {
+        func = function(ctx, value)
+            if not value or not ctx.entities then return false end
+            return not ctx.entities:partyContainsJob(value, 'sub')
         end
     },
 }
@@ -356,7 +383,7 @@ function Actions:constructActions(action_list, Player)
     self.combat_actions_delay = 0
     self.mirror_masters_engage = false
 
-    self.to_use = T{}
+    self.to_use = ActionQueue:constructActionQueue()
 
     self.once_per_combat = T{}
     self.once_per_precombat = T{}
@@ -380,7 +407,7 @@ function Actions:setActionList(action_list)
     self.precombat_actions = T{}
     self.postcombat_actions = T{}
     self.trust_list = T{}
-    self.to_use = T{}
+    self.to_use:clear()
     self.once_per_combat = T{}
     self.once_per_precombat = T{}
     self.once_per_postcombat = T{}
@@ -518,6 +545,38 @@ function Actions:switchTarget(mob_obj)
     Actions.packets.inject(packet)
 end
 
+-- Handle adhoc commands from chat packet 0x017
+-- whitelist: table of allowed sender names (e.g., {assist_name, player_name})
+-- modes 3 = tell, 4 = party
+function Actions:handleChatPacket(data, whitelist, observer_obj)
+    if not Actions.packets then return end
+
+    local p = Actions.packets.parse('incoming', data)
+    local mode = p['Mode']
+    local sender = p['Sender Name']
+    local message = p['Message']
+
+    -- Only accept party chat (4) or tells (3)
+    if mode ~= 3 and mode ~= 4 then return end
+
+    -- Check if sender is in whitelist
+    local sender_lower = sender:lower()
+    local allowed = false
+    for _, name in ipairs(whitelist) do
+        if name and name:lower() == sender_lower then
+            allowed = true
+            break
+        end
+    end
+    if not allowed then return end
+
+    -- Look for *command pattern
+    local adhoc_cmd = message:match('^%*(%w+)')
+    if not adhoc_cmd then return end
+
+    self:triggerAdHoc(adhoc_cmd, observer_obj)
+end
+
 function Actions:triggerAdHoc(cmd, observer_obj)
     if not self.adhoc_actions then return end
 
@@ -534,41 +593,38 @@ function Actions:triggerAdHoc(cmd, observer_obj)
         table.insert(abilities_to_process, ability)
     end
 
-    local target_cache = {}
     for _, proc_ability in ipairs(abilities_to_process) do
         if not proc_ability.res then break end
 
-        if not target_cache[proc_ability.target] then
-            target_cache[proc_ability.target] = self:resolveTarget(proc_ability.target, proc_ability.res, observer_obj)
-        end
+        local resolved = self:resolveTargetId(proc_ability.target, observer_obj)
+        if not resolved then break end
 
-        local resolved_target = target_cache[proc_ability.target]
-        if not resolved_target then break end
-
-        if self:isBatchTargets(resolved_target) then
-            for _, single_target in ipairs(resolved_target) do
-                local ns_target = self:normalizeTarget(single_target)
-                local chain_due_to_batch = true
-                self:processAdHocAbility(proc_ability, ns_target, observer_obj, chain_due_to_batch)
+        if self:isBatchTarget(resolved) then
+            for _, target_info in ipairs(resolved) do
+                self:processAdHocAbility(proc_ability, target_info, observer_obj)
             end
         else
-            local normalized_target = self:normalizeTarget(resolved_target)
-            self:processAdHocAbility(proc_ability, normalized_target, observer_obj)
+            self:processAdHocAbility(proc_ability, resolved, observer_obj)
         end
     end
 end
-function Actions:processAdHocAbility(ability, target_obj, observer_obj, chain_due_to_batch)
-    local normalized_target = target_obj
-    if not self:inRange(ability, normalized_target) then return false end
-    if ability.conditions and not self:testConditions(ability, 'adhoc', normalized_target, observer_obj) then
+-- target_info is {id = number, target_type = string} from resolveTargetId
+function Actions:processAdHocAbility(ability, target_info, observer_obj)
+    local target_id = target_info.id
+    local target_type = target_info.target_type
+
+    if not self:inRangeById(ability, target_id, observer_obj) then return false end
+
+    if ability.conditions and not self:testConditions(ability, 'adhoc', target_id, observer_obj) then
         return false
     end
+
     local ability_copy = Utilities:shallowCopy(ability)
     ability_copy.res = Utilities:shallowCopy(ability.res)
-    ability_copy.targeting = normalized_target.id
+    ability_copy.targeting = target_id
+    ability_copy.target_type_string = target_type
     ability_copy.res.ad_hoc = true
     ability_copy.checks = {recast = false, conditions = false, range = true, duplicate = false}
-    -- if chain_due_to_batch then ability_copy.queue_type = 'enqueue' end
     self:addToUse(ability_copy, 'adhoc')
     return true
 end
@@ -599,13 +655,13 @@ function Actions:handleState(StateController, observer_obj)
     self:runActions(StateController, observer_obj)
 end
 function Actions:handleCombat(StateController, observer_obj)
-    if observer_obj and observer_obj.mob_to_fight and not observer_obj.mob_to_fight.obj then
+    local mtf = observer_obj and observer_obj.entities and observer_obj.entities.mtf
+    if not mtf then
         return
     end
 
-    local mob = observer_obj.mob_to_fight.obj
-    if mob and mob.updateDetails then mob:updateDetails() else return end
-    mob = observer_obj.mob_to_fight.obj:getFlatCopy()
+    mtf:updateDetails()
+    local mob = mtf:getFlatCopy()
 
     if self.player.status == 0 and self.should_engage then -- We are not engaged while in a combat state and we should be engaged.
 
@@ -693,6 +749,35 @@ function Actions:inRange(full_ability, target_obj)
     end
     return false
 end
+
+-- ID-based range check using EntityStore for O(1) lookup
+function Actions:inRangeById(full_ability, target_id, observer_obj)
+    if not self.player or not full_ability or not target_id then return false end
+
+    -- Self-target is always in range
+    if target_id == self.player.id then
+        return true
+    end
+
+    local entities = observer_obj and observer_obj.entities
+    if not entities then return false end
+
+    -- O(1) lookup from EntityStore
+    local target_obj = entities:get(target_id)
+
+    -- Fall back to windower if not in store
+    if not target_obj then
+        target_obj = windower.ffxi.get_mob_by_id(target_id)
+    end
+
+    if not target_obj then return false end
+
+    -- Get the mob data (MobObject/PlayerObject use different field names)
+    local targ_mob = target_obj.details or target_obj.mob or target_obj
+
+    return self:inRange(full_ability, targ_mob)
+end
+
 function Actions:canUse(resolved_ability)
     if not self.player or not resolved_ability then return false end
 
@@ -929,347 +1014,305 @@ function Actions:resolveActionTargetType(target_string)
     end
     return 'Specified'
 end
--- Self,Pet,NPC,Party,Alliance,Enemy
-function Actions:resolveTargetType(target_mob)
-    if not target_mob then return nil end
-
-    if target_mob.id == self.player.id then return 'Self' end
-    local pet = self.player.mob and self.player.mob.pet_index and windower.ffxi.get_mob_by_index(self.player.mob.pet_index)
-    if pet and target_mob.id == pet.id then return 'Pet' end
-
-    local party =  windower.ffxi.get_party()
-    if party then
-        for i = 0,5 do
-            local member = party['p'..i]
-            if member and member.mob and member.mob.id == target_mob.id then
-                return 'Party'
-            end
-        end
-        for i = 10, 15 do
-            local member = party['a'..i]
-            if member and member.mob and member.mob.id == target_mob.id then
-                return 'Alliance'
-            end
-        end
-        for i = 20, 25 do
-            local member = party['a'..i]
-            if member and member.mob and member.mob.id == target_mob.id then
-                return 'Alliance'
-            end
-        end
-    end
-
-    if target_mob.spawn_type == 16 then
-        return 'Enemy'
-    end
-
-    return 'NPC'
-end
--- Can return a mob object from windower functions OR a table of mob objects
--- Validates, because it can return false if invalid declared target
-function Actions:resolveTarget(target_string, ability_res, observer_obj)
+--------------------------------------------------------------------------------
+-- Target Resolution (returns ID + type, not full objects)
+-- EntityStore provides entity data when needed via observer_obj.entities
+--------------------------------------------------------------------------------
+-- Resolve a target string to ID(s) and target type
+-- Returns: {id = number, target_type = string} or array of those for batch targets
+-- Returns nil if invalid target
+function Actions:resolveTargetId(target_string, observer_obj)
+    if not target_string then return nil end
     local target_lower = target_string:lower()
-    local resolved = nil
+    local entities = observer_obj and observer_obj.entities
 
-    local target_strings = T{'t','bt','pet'}
-    local target_groups = T{'party','alliance','enemy'}
+    -- Self targets
+    if S{'me','self',self.player.name:lower(),'p0'}:contains(target_lower) then
+        return {id = self.player.id, target_type = 'Self'}
+    end
 
-    if S{'me','self',self.player.name,'p0'}:contains(target_lower) then
-        resolved = self.player.mob
-        for i,v in pairs(self.player.vitals) do
-            resolved[i] = v
+    -- Enemy targets (t, bt, enemy) - use MTF from EntityStore
+    if S{'t','bt','enemy'}:contains(target_lower) then
+        if entities and entities.mtf then
+            return {id = entities.mtf.id, target_type = 'Enemy'}
         end
-        resolved.target_type_string = 'Self'
-        return resolved
+        return nil
     end
-    -- A simple target string. Easy.
-    if target_strings:contains(target_lower) then
-        if target_lower == 't' or target_lower == 'bt' then
-            -- Should be the MTF!
-            if observer_obj and observer_obj.mob_to_fight and observer_obj.mob_to_fight.obj then
-                local resolved_copy = Utilities:shallowCopy(observer_obj.mob_to_fight.obj.details)
-                resolved = Utilities:shallowMerge(resolved_copy, observer_obj.mob_to_fight.obj)
-                resolved.targe_type_string = 'Enemy'
-                return resolved
-            end
+
+    -- Pet target
+    if target_lower == 'pet' then
+        local pet = entities and entities:getMyPet()
+        if pet then
+            return {id = pet.id, target_type = 'Pet'}
         end
-        resolved = windower.ffxi.get_mob_by_target(target_lower)
-        local target_type = self:resolveTargetType(resolved)
-        local valid = ability_res.targets[target_type] == true
-        if not valid then
-            return false
+        local pet_mob = windower.ffxi.get_mob_by_target('pet')
+        if pet_mob then
+            return {id = pet_mob.id, target_type = 'Pet'}
         end
-        resolved.target_type_string = target_type
-        return resolved
+        return nil
     end
-    -- Handle alliance slot targets: a10-a15 (alliance 1), a20-a25 (alliance 2)
-    local alliance_match = target_lower:match('^a(%d+)$')
-    if alliance_match then
-        local slot = tonumber(alliance_match)
-        resolved = windower.ffxi.get_mob_by_target(slot)
-        if resolved then
-            resolved.target_type_string = 'Alliance'
-            return resolved
-        end
-        return false
-    end
+
+    -- Party slot (p0-p5)
     local party_match = target_lower:match('^p(%d+)$')
     if party_match then
         local slot = tonumber(party_match)
-        resolved = windower.ffxi.get_mob_by_target(slot)
-        if resolved then
-            resolved.target_type_string = 'Party'
-            return resolved
-        end
-        return false
-    end
-    -- Handle wildcards (can create list of targets)
-    local target_batch = T{}
-    if target_groups:contains(target_lower) then
-        if target_lower == 'party' then
-            local party = windower.ffxi.get_party()
-            if party then
-                for i = 0, 5 do
-                    local member = party['p'..i]
-                    if member and member.mob then
-                        member = Utilities:shallowMerge(member, member.mob)
-                        member.target_type_string = 'Party'
-                        target_batch:append(member)
-                    end
-                end
-                return target_batch
+        local party = windower.ffxi.get_party()
+        if party then
+            local member = party['p'..slot]
+            if member and member.mob then
+                return {id = member.mob.id, target_type = 'Party'}
             end
         end
-        if target_lower == 'alliance' then
-            local party = windower.ffxi.get_party()
-            if party then
-                for i = 0, 5 do
-                    local member = party['p'..i]
-                    if member and member.mob then
-                        member = Utilities:shallowMerge(member, member.mob)
-                        member.target_type_string = 'Party'
-                        target_batch:append(member)
-                    end
-                end
-                for i = 10, 15 do
-                    local member = party['a'..i]
-                    if member and member.mob then
-                        member = Utilities:shallowMerge(member, member.mob)
-                        member.target_type_string = 'Alliance'
-                        target_batch:append(member)
-                    end
-                end
-                for i = 20, 25 do
-                    local member = party['a'..i]
-                    if member and member.mob then
-                        member = Utilities:shallowMerge(member, member.mob)
-                        member.target_type_string = 'Alliance'
-                        target_batch:append(member)
-                    end
-                end
-                return target_batch
-            end
-        end
-        if target_lower == 'enemy' then
-            -- this should be mob to fight by default
-            if observer_obj and observer_obj.mob_to_fight and observer_obj.mob_to_fight.obj then
-                resolved = observer_obj.mob_to_fight.obj:getFlatCopy()
-                resolved.target_type_string = 'Enemy'
-            end
-            if resolved then return resolved end
-            return false
-        end
+        return nil
     end
 
-    resolved = windower.ffxi.get_mob_by_name(target_string)
-    if resolved.id and observer_obj.claim_ids:contains(resolved.id) then
+    -- Alliance slot (a10-a15, a20-a25)
+    local alliance_match = target_lower:match('^a(%d+)$')
+    if alliance_match then
+        local slot = tonumber(alliance_match)
+        local party = windower.ffxi.get_party()
+        if party then
+            local member = party['a'..slot]
+            if member and member.mob then
+                return {id = member.mob.id, target_type = 'Alliance'}
+            end
+        end
+        return nil
+    end
+
+    -- Batch targets: 'party' - returns array of {id, target_type}
+    if target_lower == 'party' then
+        local batch = {}
         local party = windower.ffxi.get_party()
         if party then
             for i = 0, 5 do
                 local member = party['p'..i]
-                if member and member.mob and member.mob.id == resolved.id then
-                    local append_it = T{'tp','hpp','mp','hp','mpp'}
-                    for _,v in pairs(append_it) do
-                        if member[v] then resolved[v] = member[v] end
-                    end
+                if member and member.mob then
+                    batch[#batch + 1] = {id = member.mob.id, target_type = 'Party'}
                 end
             end
         end
+        return #batch > 0 and batch or nil
     end
 
-    resolved.target_type_string = self:resolveTargetType(resolved)
-    if resolved then return resolved end
-
-    return false
-end
-function Actions:isBatchTargets(resolved_target)
-    return resolved_target and type(resolved_target) == 'table' and resolved_target[1] ~= nil
-end
-function Actions:getTargetId(resolved_target)
-    if not resolved_target then return nil end
-    if resolved_target.mob and resolved_target.mob.id then
-        return resolved_target.mob.id
+    -- Batch targets: 'alliance' - returns array of {id, target_type}
+    if target_lower == 'alliance' then
+        local batch = {}
+        local party = windower.ffxi.get_party()
+        if party then
+            for i = 0, 5 do
+                local member = party['p'..i]
+                if member and member.mob then
+                    batch[#batch + 1] = {id = member.mob.id, target_type = 'Party'}
+                end
+            end
+            for i = 10, 15 do
+                local member = party['a'..i]
+                if member and member.mob then
+                    batch[#batch + 1] = {id = member.mob.id, target_type = 'Alliance'}
+                end
+            end
+            for i = 20, 25 do
+                local member = party['a'..i]
+                if member and member.mob then
+                    batch[#batch + 1] = {id = member.mob.id, target_type = 'Alliance'}
+                end
+            end
+        end
+        return #batch > 0 and batch or nil
     end
-    if resolved_target.id then return resolved_target.id end
+
+    -- Named target (try by name)
+    local mob = windower.ffxi.get_mob_by_name(target_string)
+    if mob and mob.id then
+        -- Determine type
+        local target_type = 'NPC'
+        if mob.id == self.player.id then
+            target_type = 'Self'
+        elseif entities and entities:isInIndex('party', mob.id) then
+            target_type = 'Party'
+        elseif entities and entities:isInIndex('alliance', mob.id) then
+            target_type = 'Alliance'
+        elseif mob.spawn_type == 16 then
+            target_type = 'Enemy'
+        end
+        return {id = mob.id, target_type = target_type}
+    end
+
     return nil
 end
-function Actions:normalizeTarget(resolved_target)
-    if not resolved_target then return nil end
-    if resolved_target.target_type_string then
-        if resolved_target.target_type_string == 'Self' then
-            for i,v in pairs(windower.ffxi.get_player().vitals) do
-                resolved_target[i] = v
-            end
-        end
-        if S{'Party','Alliance'}:contains(resolved_target.target_type_string) then
-            if resolved_target.mob then
-                for i,v in pairs(resolved_target.mob) do
-                    if i ~= 'models' then
-                        resolved_target[i] = v
-                    end
-                end
-            end
-            return resolved_target
-        end
-    end
-    return resolved_target
+
+-- Check if resolved target is a batch (array of targets)
+function Actions:isBatchTarget(resolved)
+    return resolved and type(resolved) == 'table' and resolved[1] ~= nil and resolved[1].id ~= nil
 end
 
 function Actions:testActions(list, ltype, observer_obj)
     local list_type = ltype or 'combat'
     if not list then return end
 
-    for _,ability in ipairs(list) do
+    for _, ability in ipairs(list) do
 
-        if ability.is_chain and ability.chain then -- Chain Ability Handling
-            local target_cache = {}
+        if ability.is_chain and ability.chain then
+            -- Chain Ability Handling
             local all_conditions_pass = true
+            local chain_targets = {} -- Store resolved {id, target_type} per chain ability
 
-            for _, chain_ability in ipairs(ability.chain) do
+            -- First pass: validate all chain abilities
+            for i, chain_ability in ipairs(ability.chain) do
                 chain_ability.conditions = ability.conditions
-                if not target_cache[chain_ability.target] then
-                    target_cache[chain_ability.target] = self:resolveTarget(chain_ability.target, chain_ability.res, observer_obj)
+                local resolved = self:resolveTargetId(chain_ability.target, observer_obj)
+                if not resolved then
+                    all_conditions_pass = false
+                    break
                 end
-                local resolved_target = self:normalizeTarget(target_cache[chain_ability.target])
-                if not resolved_target or not self:testConditions(chain_ability, list_type, resolved_target, observer_obj) then
+                chain_targets[i] = resolved
+                if not self:testConditions(chain_ability, list_type, resolved.id, observer_obj) then
                     all_conditions_pass = false
                     break
                 end
             end
-            -- Second pass: queue all if conditions passed
+
+            -- Second pass: build chain actions array and queue
             if all_conditions_pass then
-                for _, chain_ability in ipairs(ability.chain) do
-                    local resolved_target = target_cache[chain_ability.target]
+                local chain_actions = {}
+                for i, chain_ability in ipairs(ability.chain) do
+                    local resolved = chain_targets[i]
                     local ability_copy = Utilities:shallowCopy(chain_ability)
-                    ability_copy.targeting = self:getTargetId(resolved_target)
-                    ability_copy.target_type_string = resolved_target.target_type_string
+                    ability_copy.targeting = resolved.id
+                    ability_copy.target_type_string = resolved.target_type
                     ability_copy.checks = {
-                        recast = false,      -- isRecastReady
-                        conditions = true,  -- testConditions
-                        range = true,        -- inRange
-                        duplicate = false,    -- Check for duplicate name+target
+                        recast = false,
+                        conditions = true,
+                        range = true,
                     }
-                    self:addToUse(ability_copy, 'enqueue')
+                    chain_actions[#chain_actions + 1] = ability_copy
                 end
+                self:addChainToUse(chain_actions, list_type)
             end
+
         elseif not ability.res then
-            -- Skip (Cuz there's no friggin Continue)
+            -- Skip (no resource data)
         elseif not self:isRecastReady(ability) then
-            -- Skip
+            -- Skip (not ready)
         elseif ability.res.ad_hoc then
-            -- Skip
+            -- Skip (ad-hoc abilities handled separately)
         else
-            local resolved_target = self:resolveTarget(ability.target, ability.res, observer_obj)
-
-            if not resolved_target then
-                -- Skip (barf)
-            else
-                local targets = self:isBatchTargets(resolved_target) and resolved_target or {resolved_target}
-
-                if self:isBatchTargets(resolved_target) then
-                    for _, single_target in ipairs(resolved_target) do
-                        local ns_target = self:normalizeTarget(single_target)
-
-                        if not self:inRange(ability, ns_target) then
-                            -- Skip
-                        elseif ability.conditions and not self:testConditions(ability, list_type, ns_target, observer_obj) then
-                            -- Skip
-                        else
-                            local ability_copy = Utilities:shallowCopy(ability)
-                            ability_copy.targeting = self:getTargetId(ns_target)
-                            ability_copy.checks = {
-                                recast = false,      -- isRecastReady
-                                conditions = false,  -- testConditions
-                                range = true,        -- inRange
-                                duplicate = true,    -- Check for duplicate name+target
-                            }
-                            ability_copy.queue_type = 'enqueue'
-                            self:addToUse(ability_copy, 'enqueue')
-                        end
-                    end
-                else
-                    local ns_target = self:normalizeTarget(resolved_target)
-
-                    if not self:inRange(ability, ns_target) then
-                        -- skip
-                    elseif ability.res.type == 'Trust' then
-                        if not Utilities:arrayContains(self.to_use, ability.name) then
-                            self:addToUse(ability, list_type)
-                        end
-                    elseif not self:testConditions(ability, list_type, ns_target, observer_obj) then
-                        -- skip
+            local resolved = self:resolveTargetId(ability.target, observer_obj)
+            if not resolved then
+                -- Skip (invalid target)
+            elseif self:isBatchTarget(resolved) then
+                -- Batch targets (party/alliance wildcard)
+                for _, target_info in ipairs(resolved) do
+                    if not self:inRangeById(ability, target_info.id, observer_obj) then
+                        -- Skip (out of range)
+                    elseif ability.conditions and not self:testConditions(ability, list_type, target_info.id, observer_obj) then
+                        -- Skip (conditions failed)
                     else
                         local ability_copy = Utilities:shallowCopy(ability)
-                        ability_copy.targeting = self:getTargetId(ns_target)
-                        -- ability_copy.target_type_string = ns_target.target_type_string
-                        if ability.prefix == '/ra' and not Utilities:arrayContains(self.once_per_combat, ability) then
-                            table.append(self.once_per_combat, ability)
-                        end
+                        ability_copy.targeting = target_info.id
+                        ability_copy.target_type_string = target_info.target_type
                         ability_copy.checks = {
-                            recast = true,      -- isRecastReady
-                            conditions = true,  -- testConditions
-                            range = true,        -- inRange
-                            duplicate = true,    -- Check for duplicate name+target
+                            recast = false,
+                            conditions = false,
+                            range = true,
+                            duplicate = true,
                         }
-                        self:addToUse(ability_copy, list_type)
+                        ability_copy.queue_type = 'enqueue'
+                        self:addToUse(ability_copy, 'enqueue')
                     end
+                end
+            else
+                -- Single target
+                local target_id = resolved.id
+                local target_type = resolved.target_type
+
+                if not self:inRangeById(ability, target_id, observer_obj) then
+                    -- Skip (out of range)
+                elseif ability.res.type == 'Trust' then
+                    if not self.to_use:contains(ability.name) then
+                        self:addToUse(ability, list_type)
+                    end
+                elseif not self:testConditions(ability, list_type, target_id, observer_obj) then
+                    -- Skip (conditions failed)
+                else
+                    local ability_copy = Utilities:shallowCopy(ability)
+                    ability_copy.targeting = target_id
+                    ability_copy.target_type_string = target_type
+                    if ability.prefix == '/ra' and not Utilities:arrayContains(self.once_per_combat, ability) then
+                        table.insert(self.once_per_combat, ability)
+                    end
+                    ability_copy.checks = {
+                        recast = true,
+                        conditions = true,
+                        range = true,
+                        duplicate = true,
+                    }
+                    self:addToUse(ability_copy, list_type)
                 end
             end
         end
     end
 end
 
-function Actions:testConditions(ability, --[[optional]]source, --[[optional]]mob_obj, --[[optional]]observer_obj)
-
+function Actions:testConditions(ability, source, target_id, observer_obj)
     if not ability.conditions then return true end
     local conditions = ability.conditions
     if not self.player or next(conditions) == nil then return false end
 
-    local is_enemy_target = mob_obj and mob_obj.target_type_string == 'Enemy'
+    local entities = observer_obj and observer_obj.entities
+    if not entities then return false end
 
-    if is_enemy_target then
-        if self.combat_actions_delay > 0 and mob_obj.claimed_at_time and ((os.clock() - mob_obj.claimed_at_time) < self.combat_actions_delay) then return false end
-        if ability.prefix == '/pos' then
-            if mob_obj.claimed_at_time == 0 or (os.clock() - mob_obj.claimed_at_time < 1.5 )then
+    -- Get the action's target from EntityStore or windower
+    local action_target = nil
+    local action_target_type = ability.target_type_string or nil
+
+    if target_id then
+        -- Check if it's the MTF
+        if entities.mtf and entities.mtf.id == target_id then
+            action_target = entities.mtf:getFlatCopy()
+            action_target_type = 'Enemy'
+        else
+            -- Try windower for other targets
+            action_target = windower.ffxi.get_mob_by_id(target_id)
+            if action_target then
+                -- Enrich party members with vitals
+                if action_target.id == self.player.id then
+                    action_target = Utilities:shallowMerge(action_target, self.player.vitals)
+                    action_target_type = 'Self'
+                end
+            end
+        end
+    end
+
+    -- Combat delay checks for enemy targets
+    if action_target_type == 'Enemy' and action_target then
+        local claimed_time = action_target.claimed_at_time or (entities.mtf and entities.mtf.claimed_at_time)
+        if claimed_time then
+            if self.combat_actions_delay > 0 and (os.clock() - claimed_time) < self.combat_actions_delay then
+                return false
+            end
+            if ability.prefix == '/pos' and (claimed_time == 0 or (os.clock() - claimed_time) < 1.5) then
                 return false
             end
         end
     end
 
     self.player:update()
-    local target_type = mob_obj and mob_obj.target_type_string or nil
-    local mob_to_fight = observer_obj and observer_obj.mob_to_fight and observer_obj.mob_to_fight.obj or nil
+
     local ctx = {
         self = self,
         ability = ability,
-        mob_obj = mob_obj,
+        target_id = target_id,
         observer_obj = observer_obj,
+        entities = entities,
         src = source,
-        pet = windower.ffxi.get_mob_by_target('pet')
+        pet = windower.ffxi.get_mob_by_target('pet'),
+        -- mob_obj will be set per-condition based on condition's target
+        mob_obj = action_target,
     }
-    local decision = false
 
-    for _,v in pairs(conditions) do
+    for _, v in pairs(conditions) do
         local cond = v.condition
         local value = v.value or ''
         local modifier = v.modifier or nil
@@ -1278,124 +1321,93 @@ function Actions:testConditions(ability, --[[optional]]source, --[[optional]]mob
         if not cond then return false end
 
         local cond_entry = Actions.condition_funcs[cond]
-        if cond_entry then
-            local effective_mob_obj = mob_obj
-            local effective_target_type = target_type
+        if not cond_entry then return false end
 
-            if condition_target then
-                local ct_lower = condition_target:lower()
-                if ct_lower == 'me' then
-                    effective_mob_obj = Utilities:shallowMerge(self.player.mob, self.player.vitals)
-                    effective_mob_obj.target_type_string = 'Self'
+        -- Determine which entity this condition evaluates against
+        local effective_target = action_target
+        local effective_target_type = action_target_type
+
+        if condition_target then
+            local ct_lower = condition_target:lower()
+            if ct_lower == 'me' or ct_lower == 'self' then
+                effective_target = Utilities:shallowMerge(self.player.mob, self.player.vitals)
+                effective_target.target_type_string = 'Self'
+                effective_target_type = 'Self'
+            elseif ct_lower == 'pet' then
+                if not ctx.pet then return false end
+                effective_target = ctx.pet
+                effective_target.target_type_string = 'Pet'
+                effective_target_type = 'Pet'
+            elseif ct_lower == 'enemy' or ct_lower == 't' then
+                if entities.mtf then
+                    effective_target = entities.mtf:getFlatCopy()
+                    effective_target.target_type_string = 'Enemy'
+                    effective_target_type = 'Enemy'
+                end
+            end
+        elseif cond_entry.allowed_targets and effective_target_type then
+            -- Coerce if needed
+            if not cond_entry.allowed_targets:contains(effective_target_type) then
+                if cond_entry.coerce_to == 'Enemy' and entities.mtf then
+                    effective_target = entities.mtf:getFlatCopy()
+                    effective_target_type = 'Enemy'
+                elseif cond_entry.coerce_to == 'Self' then
+                    effective_target = Utilities:shallowMerge(self.player.mob, self.player.vitals)
+                    effective_target.target_type_string = 'Self'
                     effective_target_type = 'Self'
-                elseif ct_lower == 'pet' then
-                    local pet = ctx.pet
-                    if pet then
-                        effective_mob_obj = pet
-                        effective_mob_obj.target_type_string = 'Pet'
-                        effective_target_type = 'Pet'
-                    else
-                        -- No pet exists, condition cannot be evaluated
-                        return false
-                    end
+                else
+                    return false
                 end
             end
-
-            -- Check target type compatibility, coerce if possible
-            if not condition_target and cond_entry.allowed_targets and effective_target_type then
-                if not cond_entry.allowed_targets:contains(effective_target_type) then
-                    -- Attempt to Coerce
-                    if cond_entry.coerce_to == 'Enemy' and mob_to_fight then
-                        effective_mob_obj = mob_to_fight
-                    elseif cond_entry.coerce_to == 'Self' and ctx.self.player then
-                        local self_obj = Utilities:shallowMerge(ctx.self.player.mob, ctx.self.player.vitals)
-                        self_obj.target_type_string = 'Self'
-                        effective_mob_obj = self_obj
-                    else
-                        -- Cannot coerce this
-                        return false
-                    end
-                end
-            end
-
-            ctx.mob_obj = effective_mob_obj
-            decision = cond_entry.func(ctx, value, modifier)
-            -- Restore original mob_obj after coerced condition
-            ctx.mob_obj = mob_obj
         end
+
+        ctx.mob_obj = effective_target
+        ctx.target_type = effective_target_type
+        ctx.effective_target_id = effective_target and effective_target.id or target_id
+        local decision = cond_entry.func(ctx, value, modifier)
         if decision == false then return false end
     end
 
-    return decision
+    return true
 end
 
 function Actions:addToUse(action, list_type)
-    local queue_type = action.queue_type or 'invoked'
-    local checks = action.checks or {}
-
-    if checks.duplicate ~= false then
-        local is_spell = self.magic_castable_prefixes:contains(action.prefix)
-        local is_ws = self.ws_castable_prefixes:contains(action.prefix)
-
-        for _, queued in ipairs(self.to_use) do
-            -- if is_spell and queued.name == action.name and queued.targeting == action.targeting then
-            --     return
-            -- end
-            if is_ws and self.ws_castable_prefixes:contains(queued.prefix) and queued.targeting == action.targeting then
-                return
-            end
-            if queued.name == action.name and queued.targeting == action.targeting then
-                return
-            end
-        end
-    end
-
-    if list_type == 'adhoc' then
-        table.append(self.to_use, action)
-        return
-    end
-
-    -- if queue_type == 'invoked' then
-    --     for _, queued in ipairs(self.to_use) do
-    --         local same_name = queued.name == action.name
-    --         local same_target = queued.targeting == action.targeting
-    --         local is_invoked = (queued.queue_type or 'invoked') == 'invoked'
-    --         if same_name and same_target and is_invoked then
-    --             return -- already have this ability for this target in the list
-    --         end
-    --     end
-    -- end
-
+    -- Track once-per conditions before adding
     if Utilities:arrayContains(action, 'once') then
         if list_type == 'combat' and not Utilities:arrayContains(self.once_per_combat, action.name) then
-            table.append(self.once_per_combat, action.name)
+            table.insert(self.once_per_combat, action.name)
         elseif list_type == 'noncombat' and not Utilities:arrayContains(self.once_per_noncombat, action) then
-            table.append(self.once_per_noncombat, action)
+            table.insert(self.once_per_noncombat, action)
         elseif list_type == 'precombat' and not Utilities:arrayContains(self.once_per_precombat, action) then
-            table.append(self.once_per_precombat, action)
+            table.insert(self.once_per_precombat, action)
         elseif list_type == 'postcombat' and not Utilities:arrayContains(self.once_per_postcombat, action) then
-            table.append(self.once_per_postcombat, action)
+            table.insert(self.once_per_postcombat, action)
         end
     end
 
-    table.append(self.to_use, action)
+    -- ActionQueue handles duplicate detection internally
+    self.to_use:add(action, list_type)
 end
 
+function Actions:addChainToUse(actions, list_type)
+    if not actions or #actions == 0 then return end
+    self.to_use:addChain(actions, list_type)
+end
 function Actions:runActions(StateController, observer_obj)
-
     self.player:update()
 
     -- Nothing to Process
-    if next(self.to_use) == nil then return end
+    if self.to_use:isEmpty() then return end
 
-    local ability = self.to_use[1]
-    local resolved_ability = self.to_use[1]['res']
+    local ability = self.to_use:peek()
+    if not ability then return end
+
+    local resolved_ability = ability.res
     local checks = ability.checks or {recast = true, conditions = true, range = true}
 
     local can_act = observer_obj:canAct()
-    local last_was_ja = self.last_prefix_used and Utilities:arrayContains(self.ja_castable_prefixes, self.last_prefix_used)
-    local next_is_ja_or_ws = self.to_use[1] and (self.ja_castable_prefixes:contains(self.to_use[1].prefix)
-                            or self.ws_castable_prefixes:contains(self.to_use[1].prefix))
+    local last_was_ja = self.to_use.last_prefix_used and Utilities:arrayContains(self.ja_castable_prefixes, self.to_use.last_prefix_used)
+    local next_is_ja_or_ws = ability and (self.ja_castable_prefixes:contains(ability.prefix) or self.ws_castable_prefixes:contains(ability.prefix))
     local can_chain = last_was_ja and next_is_ja_or_ws
 
     -- Can't act or not chaining.
@@ -1403,15 +1415,24 @@ function Actions:runActions(StateController, observer_obj)
     -- Too close to attack packet engagement
     if observer_obj:timeSinceLastAttackPkt() <= 2 then return end
 
-    -- Resolve Target using Targeting
+    -- Resolve Target using Targeting (target validity is always checked)
     local resolved_target = nil
     if ability.targeting then
         resolved_target = windower.ffxi.get_mob_by_id(ability.targeting)
 
-        if resolved_target and observer_obj.mob_to_fight
-            and observer_obj.mob_to_fight.obj
-            and observer_obj.mob_to_fight.obj.index == resolved_target.index then
-                resolved_target = observer_obj.mob_to_fight.obj:getFlatCopy()
+        if not resolved_target then
+            -- Invalid target, remove action (and chain if part of one)
+            if ability.is_chain and ability.chain_id then
+                self.to_use:removeChain(ability.chain_id)
+            else
+                self.to_use:pop()
+            end
+            return
+        end
+
+        local mtf = observer_obj.entities and observer_obj.entities.mtf
+        if mtf and mtf.index == resolved_target.index then
+            resolved_target = mtf:getFlatCopy()
         else
             -- Enrich with Vitals for Self and party members
             if resolved_target.id == self.player.id then
@@ -1433,26 +1454,29 @@ function Actions:runActions(StateController, observer_obj)
                 end
             end
         end
-        if resolved_target and ability.target_type_string then
+        if ability.target_type_string then
             resolved_target.target_type_string = ability.target_type_string
         end
     end
 
     if not ability.prefix or not ability.name or not ability.target or not ability.targeting then return end
 
-    -- In Range of specified Target
-    -- if not self:inRange(ability, resolved_target) then return end
-
-    local should_remove = not resolved_target
-        or (checks.range and not self:inRange(ability, resolved_target))
+    -- Check configured validations
+    local should_remove = (checks.range and not self:inRange(ability, resolved_target))
         or (checks.recast and not self:isRecastReady(ability))
-        or (checks.conditions and not self:testConditions(ability, 'to_use', resolved_target, observer_obj))
+        or (checks.conditions and not self:testConditions(ability, 'to_use', ability.targeting, observer_obj))
+
     if should_remove then
-        table.remove(self.to_use, 1)
+        if ability.is_chain and ability.chain_id then
+            self.to_use:removeChain(ability.chain_id)
+        else
+            self.to_use:pop()
+        end
+        return
     end
 
     -- Prevent spamming the last ability
-    if self.last_sent_ability == ability.name and (os.clock() - self.last_sent_time) < 1 then return end
+    if not self.to_use:canSend(ability.name) then return end
 
     -- Ready to execute
     local requires_stationary = ability.prefix == '/item' or self.magic_castable_prefixes:contains(ability.prefix)
@@ -1461,12 +1485,11 @@ function Actions:runActions(StateController, observer_obj)
         windower.ffxi.run(false)
         coroutine.sleep(0.4)
     end
-    -- notice('d')
+
     -- Execute
-    self:executeAbility(ability, resolved_ability, resolved_target, observer_obj, Statecontroller)
-    self:setLastPrefixUsed(ability.prefix)
-    self.last_sent_ability = ability.name
-    self.last_sent_time = os.clock()
+    self:executeAbility(ability, resolved_ability, resolved_target, observer_obj, StateController)
+    self.to_use:setLastPrefixUsed(ability.prefix)
+    self.to_use:markSent(ability.name)
 end
 function Actions:executeAbility(ability, resolved_ability, target, observer_obj, StateController)
     local prefix = ability.prefix
@@ -1496,16 +1519,16 @@ function Actions:executeAbility(ability, resolved_ability, target, observer_obj,
         self:sendCommand('input '..prefix..' '..ability.targeting)
         observer_obj:setActionDelay('ra')
     elseif prefix == '/pos' then
-        if target and target.details then
+        if target and target.x and target.y then
             local me = self.player.mob
             local degrees = ability.degrees
-            local dx = target.details.x - me.x
-            local dy = target.details.y - me.y
+            local dx = target.x - me.x
+            local dy = target.y - me.y
             local distance = resolved_ability.distance or math.sqrt(dx*dx + dy*dy) or 2
-            local new_x, new_y = observer_obj:determinePointInSpace(target.details, distance, degrees)
+            local new_x, new_y = observer_obj:determinePointInSpace(target, distance, degrees)
             observer_obj:setCombatPosition(new_x, new_y)
             StateController:setState('combat positioning')
-            table.remove(self.to_use, 1)
+            self.to_use:pop()
         end
     else
         -- Default: treat as job ability
@@ -1541,7 +1564,7 @@ function Actions:emptyOncePerNonCombat()
     self.once_per_noncombat = T{}
 end
 function Actions:emptyToUse()
-    self.to_use = T{}
+    self.to_use:clear()
 end
 
 function Actions:handleActionNotification(act, player, observer, statecontroller)
@@ -1563,37 +1586,21 @@ function Actions:handleActionNotification(act, player, observer, statecontroller
 
         --notice('(Targ.Act.Msg) Category: '..category..'; TAM: '..paralyzed..';')
         if category == 6 or category == 14 then  -- Finished JA
-            if self.to_use and not para_flag then
-                for i,v in ipairs(self.to_use) do
-                    if v.res and v.res.id == param then
-                        table.remove(self.to_use, i)
-                        break
-                    end
-                end
+            if not para_flag then
+                self.to_use:removeByResId(param)
             end
-            -- if Utilities.res.job_abilities[param] then
-            --     local ability = Utilities.res.job_abilities[param]
-            --     if self.to_use and not para_flag then
-            --         for i,v in ipairs(self.to_use) do
-            --             if v.name:lower() == Utilities.res.job_abilities[param].en:lower() then
-            --                 table.remove(self.to_use, i)
-            --                 break
-            --             end
-            --         end
-            --     end
-
-                if self.to_use[1] and (self.to_use[1].prefix == '/jobability' or self.to_use[1].prefix == '/weaponskill') then
-                    coroutine.schedule(function() observer:forceUnbusy() end, 0.7)
-                else
-                    coroutine.schedule(function() observer:forceUnbusy() end, 0.7)
-                end
-            -- end
+            local next_action = self.to_use:peek()
+            if next_action and (next_action.prefix == '/jobability' or next_action.prefix == '/weaponskill') then
+                coroutine.schedule(function() observer:forceUnbusy() end, 0.7)
+            else
+                coroutine.schedule(function() observer:forceUnbusy() end, 0.7)
+            end
         end
 
         if category == 8 then -- Interrupted Casting
             if param == 28787 then
                 notice('Interrupted.')
-                observer:setActionDelay('spell', 2)
+                observer:setActionDelay('spell', 3)
                 coroutine.schedule(function() observer:forceUnbusy() end, 2)
             end
         end
@@ -1604,39 +1611,17 @@ function Actions:handleActionNotification(act, player, observer, statecontroller
                 return
             end
             local item_id = targets[1].actions[1].param or nil
-            -- local item = Utilities.res.items[item_id].en or Utilities.res.items[item_id].enl
-            if param == 24931 and self.to_use and not para_flag then -- Initiation
-                for i,v in pairs(self.to_use) do
-                    if v.res and v.res.id == item_id then
-                        table.remove(self.to_use, i)
-                        break
-                    end
-                end
+            if param == 24931 and not para_flag then -- Initiation
+                self.to_use:removeByResId(item_id)
                 coroutine.schedule(function() observer:forceUnbusy() end, recast)
             end
         end
 
         if category == 3 then -- Finished Weapon Skill
-            -- if Utilities.res.weapon_skills[param] or Utilities.res.job_abilities[param] then
-
-            --     local ws = Utilities.res.weapon_skills[param] or nil
-            --     local ability = Utilities.res.job_abilities[param] or nil
-
-            if self.to_use and not para_flag then
-                for i,v in pairs(self.to_use) do
-                    if v.res and v.res.id == param then
-                        table.remove(self.to_use, i)
-                        coroutine.schedule(function() observer:forceUnbusy() end, 1)
-                        break
-                    end
-                    -- local ws_name = ws and ws.en:lower() or nil
-                    -- local abil_name = ability and ability.en:lower() or nil
-                    -- if v.name:lower() == ws_name or v.name:lower() == abil_name then
-
-                    -- end
-                end
+            if not para_flag then
+                self.to_use:removeByResId(param)
+                coroutine.schedule(function() observer:forceUnbusy() end, 1)
             end
-            -- end
         end
 
         if category == 7 then
@@ -1648,24 +1633,16 @@ function Actions:handleActionNotification(act, player, observer, statecontroller
 
         if category == 4 then -- Finished Spell
             if param == 0 then
-                self.to_use = T{}
+                self.to_use:clear()
                 observer:setActionDelay('spell')
                 coroutine.schedule(function() observer:forceUnbusy() end, 2)
             end
 
-            -- if Utilities.res.spells[param] then
-                -- local ability = Utilities.res.spells[param]
-            if self.to_use and not para_flag then
-                for i,v in pairs(self.to_use) do
-                    if v.res and v.res.id == param then
-                        table.remove(self.to_use, i)
-                        break
-                    end
-                end
+            if not para_flag then
+                self.to_use:removeByResId(param)
                 observer:setActionDelay('spell')
                 coroutine.schedule(function() observer:forceUnbusy() end, 2)
             end
-            -- end
         end
     end
 
@@ -1673,14 +1650,14 @@ function Actions:handleActionNotification(act, player, observer, statecontroller
     if actor and actor.id ~= self.player.id then
         local category = act.category
         local targets = T(act.targets)
-        local party_ids = observer:setPartyClaimIds()
-        local party_pet_ids = observer:getPartyPetIds()
+        local party_ids = observer.entities:updateClaimIds()
+        local party_pet_ids = observer.entities:getPetIds()
 
         if category == 1 then -- Melee attack against Player or Party
             for _,v in pairs(party_ids) do
                 if targets:with('id', v) then
                     -- Exclude pet IDs as they don't transfer aggro to party
-                    if not party_pet_ids:contains(v) then
+                    if not party_pet_ids[v] then
                         observer:addToAggro(actor.id)
                     end
                 end
@@ -1690,7 +1667,7 @@ function Actions:handleActionNotification(act, player, observer, statecontroller
             for _,v in pairs(party_ids) do
                 if targets:with('id', v) then
                     -- Exclude pet IDs as they don't transfer aggro to party
-                    if not party_pet_ids:contains(v) then
+                    if not party_pet_ids[v] then
                         observer:addToAggro(actor.id)
                     end
                 end

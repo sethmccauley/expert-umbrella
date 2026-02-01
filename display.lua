@@ -216,9 +216,9 @@ function Display:updateToUseDisplay(box_type, create)
     local head = L{}
     head:append('\\cs(150,255,150)| TO USE | \\cr')
     local collection = T{}
-    if self.actions and self.actions.to_use and next(self.actions.to_use) ~= nil then
-        for _,v in pairs(self.actions.to_use) do
-            if (v.queue_type and v.queue_type == 'enqueue') then
+    if self.actions and not self.actions.to_use:isEmpty() then
+        for _,v in pairs(self.actions.to_use.entries) do
+            if v and v.checks and v.checks.recast == false then
                 local targeting = v and v.targeting or ''
                 collection:append('\\cs(80,180,100)'..v.name..' '..targeting..'\\cr')
             else

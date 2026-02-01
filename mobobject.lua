@@ -10,7 +10,7 @@ function MobObject:constructMob(mob_or_index)
     if type(mob) ~= 'table' then
         mob = windower.ffxi.get_mob_by_index(mob_or_index)
     end
-    if type(mob) ~= 'table' then return nil end
+    if type(mob) ~= 'table' or not mob.id then return nil end
 
     self.id = mob.id
     self.index = mob.index
