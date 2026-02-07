@@ -641,7 +641,7 @@ function ObserverObject:setIPCActive(value)
     self.ipc_active = value
 end
 function ObserverObject:isIPCActive()
-    return self.ipc_active and self.multi_box_present
+    return self.ipc_active
 end
 function ObserverObject:setMBP(value)
     if type(value) ~= 'boolean' then return end

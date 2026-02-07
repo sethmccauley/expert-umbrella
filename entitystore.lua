@@ -51,10 +51,10 @@ function EntityStore:addMob(mob_or_index, category)
     local existing = self.mobs[mob_obj.id]
     if existing then
         existing:updateDetails()
-        return existing
+        mob_obj = existing
+    else
+        self.mobs[mob_obj.id] = mob_obj
     end
-
-    self.mobs[mob_obj.id] = mob_obj
 
     if category then
         self:addToIndex(category, mob_obj.id)

@@ -86,7 +86,7 @@ function MobObject:validVitals()
 end
 function MobObject:validStatus()
     if not self.details then return false end
-    return (self.details.valid_target == true) and self.details.spawn_type == 16 and (self.details.status ~= 2 or self.details.status ~= 3)
+    return (self.details.valid_target == true) and self.details.spawn_type == 16 and (self.details.status ~= 2 and self.details.status ~= 3)
 end
 function MobObject:isAllianceClaimed(alliance_ids)
     if not alliance_ids then return nil end

@@ -753,8 +753,11 @@ function Utilities:receiveIPC(from, cmd, args, Observer, StateController, Naviga
                 end,
         ['register'] = function()
                         self:sendIPC('acknowledge', Observer.entities.me.name)
+                        Observer:setIPCActive(true)
                     end,
-        ['acknowledge'] = function() end,
+        ['acknowledge'] = function()
+                        Observer:setIPCActive(true)
+                    end,
         ['mtf'] = function(args)
                     if not isFromAssist() then return end
                     if not args[1] then return end
