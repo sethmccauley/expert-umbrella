@@ -76,7 +76,10 @@ Utilities._skillchains = L{
     [770] = 'Umbra',
 }
 Utilities._slot_map = T{'main','sub','range','ammo','head','body','hands','legs','feet','neck','waist','left_ear', 'right_ear', 'left_ring', 'right_ring','back'}
-Utilities._server_content = T{'Azi Dahaka','Naga Raja','Quetzalcoatl','Mireu'}
+Utilities._server_content = T{
+    names = {'Azi Dahaka','Naga Raja','Quetzalcoatl','Mireu'},
+    zones = {}
+}
 Utilities._trust_job_list = T{
     [1]={id=896,english="Shantotto",name="Shantotto",models=3000, mjob=4},
     [2]={id=897,english="Naji",name="Naji",models=3001, mjob=1},
@@ -727,80 +730,87 @@ function Utilities:sendIPC(msg, name)
     if not from then return end
     if #msg > 0 then windower.send_ipc_message(from..' '..msg) end
 end
+-- IPC command handlers (module-level for performance)
+-- Each function receives (ctx, args) where ctx contains: self, from, isFromAssist, Observer, StateController, Navigation, Actions
+Utilities.ipc_funcs = {
+    ['pos'] = function(ctx, args)
+                if not ctx.isFromAssist then return false end
+                if #args < 1 then return false end
+                local packed = args[1]:parse_hex()
+                local zone_id, x, y, z = packed:unpack('Hfff', 1)
+                local my_zone = windower.ffxi.get_info().zone
+                if zone_id ~= my_zone then return false end
+                if ctx.Observer:inParty(ctx.StateController.assist) and ctx.Observer:memberInZone(ctx.StateController.assist) and ctx.StateController.follow_master == true then
+                    ctx.StateController.assist_last_pos = T{['x'] = x, ['y'] = y, ['z'] = z, ['tolerance'] = .33}
+                    ctx.Navigation:pushNode(ctx.StateController.assist_last_pos)
+                end
+            end,
+    ['register'] = function(ctx)
+                    ctx.self:sendIPC('acknowledge', ctx.Observer.entities.me.name)
+                    ctx.Observer:setIPCActive(true)
+                end,
+    ['acknowledge'] = function(ctx)
+                    ctx.Observer:setIPCActive(true)
+                end,
+    ['mtf'] = function(ctx, args)
+                if not ctx.isFromAssist then return end
+                if not args[1] then return end
+                if ctx.Observer:inParty(ctx.StateController.assist) and ctx.Observer:memberInZone(ctx.StateController.assist) then
+                    local index = tonumber(args[1])
+                    local mob = windower.ffxi.get_mob_by_index(index)
+                    if mob and mob.id then
+                        notice('Was told by '..ctx.from..' about a mtf '..mob.name..' ('..index..')')
+                        ctx.Observer:setMobToFight(mob.id)
+                        ctx.Actions:emptyOncePerTables()
+                        ctx.Navigation:setShortCourse({})
+                    end
+                end
+            end,
+    ['engage'] = function(ctx, args) end,
+    ['follow'] = function(ctx, args)
+                    if not ctx.isFromAssist then return end
+                    local new_val
+                    if not args or #args == 0 then
+                        new_val = not ctx.StateController.follow_master
+                    else
+                        new_val = (args[1] == 'true')
+                    end
+                    ctx.StateController:setFollowMaster(new_val)
+                end,
+    ['disengage'] = function(ctx)
+                        if not ctx.isFromAssist then return end
+                        if ctx.Observer.entities.mtf ~= nil then
+                            ctx.Observer:setMobToFight(T{})
+                            ctx.Observer:setAggroEmpty()
+                            ctx.Actions:disengageMob()
+                        end
+                        ctx.Navigation:setShortCourse(T{})
+                    end,
+}
+
 function Utilities:receiveIPC(from, cmd, args, Observer, StateController, Navigation, Actions)
 
     if StateController.on_switch == 0 and (cmd ~= 'acknowledge' and cmd ~= 'register') then return end
 
-    -- Helper to check if message is from our designated assist target
-    local function isFromAssist()
-        return StateController.role == 'slave'
-            and StateController.assist
-            and from:lower() == StateController.assist:lower()
-    end
+    local isFromAssist = StateController.role == 'slave'
+        and StateController.assist
+        and from:lower() == StateController.assist:lower()
 
-    local func_map = {
-        ['pos'] = function(args)
-                    if not isFromAssist() then return false end
-                    if #args < 1 then return false end
-                    local packed = args[1]:parse_hex()
-                    local zone_id, x, y, z = packed:unpack('Hfff', 1)
-                    local my_zone = windower.ffxi.get_info().zone
-                    if zone_id ~= my_zone then return false end
-                    if Observer:inParty(StateController.assist) and Observer:memberInZone(StateController.assist) and StateController.follow_master == true then
-                        StateController.assist_last_pos = T{['x'] = x, ['y'] = y, ['z'] = z, ['tolerance'] = .33}
-                        Navigation:pushNode(StateController.assist_last_pos)
-                    end
-                end,
-        ['register'] = function()
-                        self:sendIPC('acknowledge', Observer.entities.me.name)
-                        Observer:setIPCActive(true)
-                    end,
-        ['acknowledge'] = function()
-                        Observer:setIPCActive(true)
-                    end,
-        ['mtf'] = function(args)
-                    if not isFromAssist() then return end
-                    if not args[1] then return end
-                    if Observer:inParty(StateController.assist) and Observer:memberInZone(StateController.assist) then
-                        local index = tonumber(args[1])
-                        local mob = windower.ffxi.get_mob_by_index(index)
-                        if mob and mob.id then
-                            notice('Was told by '..from..' about a mtf '..mob.name..' ('..index..')')
-                            Observer:setMobToFight(mob.id)
-                            Actions:emptyOncePerTables()
-                            Navigation:setShortCourse({})
-                        end
-                    end
-                end,
-        ['engage'] = function(value) end,
-        ['follow'] = function(args)
-                        if not isFromAssist() then return end
-                        local new_val
-                        if not args or #args == 0 then
-                            new_val = not StateController.follow_master
-                        else
-                            new_val = (args[1] == 'true')
-                        end
-                        StateController:setFollowMaster(new_val)
-                    end,
-        ['disengage'] = function()
-                            if not isFromAssist() then return end
-                            if Observer.entities.mtf ~= nil then
-                                Observer:setMobToFight(T{})
-                                Observer:setAggroEmpty()
-                                Actions:disengageMob()
-                            end
-                            Navigation:setShortCourse(T{})
-                        end,
-    }
-
-    -- Only track local entities if we're a slave following this sender
-    if isFromAssist() then
+    if isFromAssist then
         Observer:addLocalEntity(from)
     end
 
-    if func_map[cmd] then
-        func_map[cmd](args)
+    local handler = self.ipc_funcs[cmd]
+    if handler then
+        handler({
+            self = self,
+            from = from,
+            isFromAssist = isFromAssist,
+            Observer = Observer,
+            StateController = StateController,
+            Navigation = Navigation,
+            Actions = Actions,
+        }, args)
     end
 end
 

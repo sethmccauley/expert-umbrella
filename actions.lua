@@ -273,7 +273,7 @@ Actions.condition_funcs = {
         allowed_targets = S{'Enemy'},
         coerce_to = 'Enemy',
         func = function(ctx, value)
-            if not ctx.mob_obj or ctx.mob_obj.resonating_window <= 0 then return false end
+            if not ctx.mob_obj or not ctx.mob_obj.resonating_window or ctx.mob_obj.resonating_window <= 0 then return false end
             local time_left = ctx.mob_obj.resonating_window - (os.clock() - ctx.mob_obj.resonating_start_time)
             local window_breeched = os.clock() - ctx.mob_obj.resonating_start_time > 3
             return Utilities:arrayContains(ctx.mob_obj.resonating, value) and window_breeched and time_left >= 0.5
@@ -283,7 +283,7 @@ Actions.condition_funcs = {
         allowed_targets = S{'Enemy'},
         coerce_to = 'Enemy',
         func = function(ctx, value)
-            if not ctx.mob_obj or ctx.mob_obj.resonating_window <= 0 then return false end
+            if not ctx.mob_obj or not ctx.mob_obj.resonating_window or ctx.mob_obj.resonating_window <= 0 then return false end
             return not Utilities:arrayContains(ctx.mob_obj.resonating, value)
         end
     },
@@ -291,7 +291,7 @@ Actions.condition_funcs = {
         allowed_targets = S{'Enemy'},
         coerce_to = 'Enemy',
         func = function(ctx, value)
-            if not ctx.mob_obj or ctx.mob_obj.resonating_window <= 0 then return true end
+            if not ctx.mob_obj or not ctx.mob_obj.resonating_window or ctx.mob_obj.resonating_window <= 0 then return true end
             local time_left = ctx.mob_obj.resonating_window - (os.clock() - ctx.mob_obj.resonating_start_time)
             return (time_left <= 0)
         end
@@ -300,7 +300,7 @@ Actions.condition_funcs = {
         allowed_targets = S{'Enemy'},
         coerce_to = 'Enemy',
         func = function(ctx, value)
-            return ctx.mob_obj and ctx.mob_obj.resonating_step > value
+            return ctx.mob_obj and ctx.mob_obj.resonating_step and ctx.mob_obj.resonating_step > value
         end
     },
     ['aggrotablegt'] = {
@@ -1273,13 +1273,20 @@ function Actions:testConditions(ability, source, target_id, observer_obj)
             action_target = entities.mtf:getFlatCopy()
             action_target_type = 'Enemy'
         else
-            -- Try windower for other targets
-            action_target = windower.ffxi.get_mob_by_id(target_id)
-            if action_target then
-                -- Enrich party members with vitals
-                if action_target.id == self.player.id then
-                    action_target = Utilities:shallowMerge(action_target, self.player.vitals)
-                    action_target_type = 'Self'
+            -- Try entity store first (preserves MobObject fields like resonating)
+            local store_mob = entities:getMob(target_id)
+            if store_mob then
+                action_target = store_mob:getFlatCopy()
+                action_target_type = 'Enemy'
+            else
+                -- Fall back to windower for targets not in the store
+                action_target = windower.ffxi.get_mob_by_id(target_id)
+                if action_target then
+                    -- Enrich party members with vitals
+                    if action_target.id == self.player.id then
+                        action_target = Utilities:shallowMerge(action_target, self.player.vitals)
+                        action_target_type = 'Self'
+                    end
                 end
             end
         end
@@ -1415,36 +1422,53 @@ function Actions:runActions(StateController, observer_obj)
     -- Too close to attack packet engagement
     if observer_obj:timeSinceLastAttackPkt() <= 2 then return end
 
-    -- Resolve Target using Targeting (target validity is always checked)
+    -- Resolve Target using EntityStore (target validity is always checked)
     local resolved_target = nil
-    if ability.targeting then
-        resolved_target = windower.ffxi.get_mob_by_id(ability.targeting)
-
-        if not resolved_target then
-            -- Invalid target, remove action (and chain if part of one)
-            if ability.is_chain and ability.chain_id then
-                self.to_use:removeChain(ability.chain_id)
-            else
-                self.to_use:pop()
-            end
-            return
-        end
-
-        local mtf = observer_obj.entities and observer_obj.entities.mtf
-        if mtf and mtf.index == resolved_target.index then
-            resolved_target = mtf:getFlatCopy()
+    local remove_action = function()
+        if ability.is_chain and ability.chain_id then
+            self.to_use:removeChain(ability.chain_id)
         else
-            -- Enrich with Vitals for Self and party members
-            if resolved_target.id == self.player.id then
-                for i,v in pairs(windower.ffxi.get_player().vitals) do
-                    resolved_target[i] = v
+            self.to_use:pop()
+        end
+    end
+
+    if ability.targeting then
+        local target_type = ability.target_type_string
+
+        if target_type == 'Enemy' then
+            local store_mob = entities and entities:getMob(ability.targeting)
+            if store_mob then
+                if not store_mob:isValidTarget(self.player.mob) then
+                    remove_action()
+                    return
                 end
+                resolved_target = store_mob:getFlatCopy()
             else
+                -- Not in entity store, fall back to windower
+                resolved_target = windower.ffxi.get_mob_by_id(ability.targeting)
+                if not resolved_target or resolved_target.hpp == 0
+                    or not resolved_target.valid_target
+                    or resolved_target.status == 2 or resolved_target.status == 3 then
+                    remove_action()
+                    return
+                end
+            end
+
+        elseif target_type == 'Self' then
+            self.player:update()
+            resolved_target = Utilities:shallowMerge(self.player.mob, self.player.vitals)
+
+        elseif target_type == 'Party' or target_type == 'Alliance' then
+            local store_player = entities and entities:getPlayer(ability.targeting)
+            if store_player then
+                store_player:update()
+                resolved_target = Utilities:shallowMerge(store_player.mob, {})
+                -- Enrich with party vitals (tp, mp, hp, mpp not available from mob data)
                 local party = windower.ffxi.get_party()
                 if party then
                     for i = 0, 5 do
                         local member = party['p'..i]
-                        if member and member.mob and member.mob.id == resolved_target.id then
+                        if member and member.mob and member.mob.id == ability.targeting then
                             local append_it = T{'tp','hpp','mp','hp','mpp'}
                             for _,v in pairs(append_it) do
                                 if member[v] then resolved_target[v] = member[v] end
@@ -1452,8 +1476,36 @@ function Actions:runActions(StateController, observer_obj)
                         end
                     end
                 end
+            else
+                resolved_target = windower.ffxi.get_mob_by_id(ability.targeting)
+                if not resolved_target then
+                    remove_action()
+                    return
+                end
+            end
+
+        elseif target_type == 'Pet' then
+            local store_pet = entities and entities:getMob(ability.targeting)
+            if store_pet then
+                store_pet:updateDetails()
+                resolved_target = store_pet:getFlatCopy()
+            else
+                resolved_target = windower.ffxi.get_mob_by_id(ability.targeting)
+                if not resolved_target then
+                    remove_action()
+                    return
+                end
+            end
+
+        else
+            -- Unknown target type, fall back to windower
+            resolved_target = windower.ffxi.get_mob_by_id(ability.targeting)
+            if not resolved_target then
+                remove_action()
+                return
             end
         end
+
         if ability.target_type_string then
             resolved_target.target_type_string = ability.target_type_string
         end

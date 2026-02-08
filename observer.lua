@@ -59,6 +59,9 @@ function ObserverObject:constructObserver(entity_store)
     self.merits = 0
     self.gil = 0
 
+    -- Kill Counts
+    self.kill_counts = {}
+
     -- Initialize party data
     self:setPartyMembers()
     self.entities:syncParty()
@@ -334,6 +337,20 @@ function ObserverObject:setScanRange(value)
     if not value or value < 0 or value > 50 then return nil end
     self.scan_range = value
 end
+function ObserverObject:isIgnored(mob)
+    if not mob or not self.ignore_list then return false end
+    if self.ignore_list.name then
+        for _, name in pairs(self.ignore_list.name) do
+            if name:lower() == mob.name:lower() then return true end
+        end
+    end
+    if self.ignore_list.hex then
+        for _, hex in pairs(self.ignore_list.hex) do
+            if tonumber(hex, 16) == mob.index then return true end
+        end
+    end
+    return false
+end
 function ObserverObject:setAggroEmpty()
     self.entities:clearIndex('aggro')
 end
@@ -355,22 +372,23 @@ function ObserverObject:findTargets(mob_table_list, navigation_obj)
 
     local claim_ids = self.entities.claim_ids
 
+    local base_marray = self:getBaseMArray()
+
     for i,v in pairs(builder_marray) do
         if i == 'name' then
             if table.length(v) > 0 then
                 for _,val in pairs(v) do
-                    local mobs = self:getMArray(val)
+                    local mobs = self:filterMArray(base_marray, val)
                     for _,va in pairs(mobs) do
-                        local mob = MobObject:constructMob(va)
-                        if mob then
-                            local existing = self.entities:getMob(mob.id)
-                            if existing and self.entities:isInIndex('targets', mob.id) then
-                                existing:updateDetails()
-                                if existing:isTrulyClaimed(claim_ids) and existing.claimed_at_time == 0 then
-                                    existing.claimed_at_time = os.clock()
-                                end
+                        local existing = va.id and self.entities:getMob(va.id)
+                        if existing and self.entities:isInIndex('targets', va.id) then
+                            existing:updateDetails()
+                            if existing:isTrulyClaimed(claim_ids) and existing.claimed_at_time == 0 then
+                                existing.claimed_at_time = os.clock()
                             end
-                            if not self.entities:isInIndex('targets', mob.id) and mob:isValidTarget(self.entities.me.mob) and self:isCloseEnough(mob, self.entities.me.mob, nodes, self.scan_range) and mob:isAllianceClaimed(claim_ids) then
+                        elseif not self.entities:isInIndex('targets', va.id) then
+                            local mob = MobObject:constructMob(va)
+                            if mob and mob:isValidTarget(self.entities.me.mob) and self:isCloseEnough(mob, self.entities.me.mob, nodes, self.scan_range) and mob:isAllianceClaimed(claim_ids) then
                                 self.entities:addMob(mob, 'targets')
                             end
                         end
@@ -448,7 +466,7 @@ function ObserverObject:determineTarget(Actions, StateController)
                                 self:addToAggro(potential_target.id)
                             end
                             local mtf = self.entities.mtf
-                            if not mtf or (mtf.index ~= master_target_index) then
+                            if (not mtf or (mtf.index ~= master_target_index)) and not self:isIgnored(potential_target) then
                                 self:setMobToFight(potential_target.id)
                                 Actions:emptyOncePerTables()
                             end
@@ -490,7 +508,7 @@ function ObserverObject:determineTarget(Actions, StateController)
         if hasCurrentTarget ~= 0 then
             if self.entities.me.status == 1 then
                 local possible_target = MobObject:constructMob(hasCurrentTarget)
-                if possible_target and possible_target:isValidTarget(self.entities.me.mob) and possible_target:isAllianceClaimed(claim_ids) then
+                if possible_target and possible_target:isValidTarget(self.entities.me.mob) and possible_target:isAllianceClaimed(claim_ids) and not self:isIgnored(possible_target) then
                     self:setMobToFight(possible_target.id)
                     Actions:emptyOncePerTables()
                     if self:isMBP() and StateController.role == 'master' and possible_target.index then
@@ -504,7 +522,7 @@ function ObserverObject:determineTarget(Actions, StateController)
         if not self.entities:hasTargets() then
             if self.entities:hasAggro() then
                 local nearest_mob = self:pickNearest('aggro')
-                if nearest_mob then
+                if nearest_mob and not self:isIgnored(nearest_mob) then
                     self:setMobToFight(nearest_mob.id)
                     Actions:emptyOncePerTables()
                     if self:isMBP() and StateController.role == 'master' and nearest_mob.index then
@@ -514,7 +532,7 @@ function ObserverObject:determineTarget(Actions, StateController)
             end
         else
             local nearest_mob = self:pickNearest('targets')
-            if nearest_mob then
+            if nearest_mob and not self:isIgnored(nearest_mob) then
                 self:setMobToFight(nearest_mob.id)
                 Actions:emptyOncePerTables()
                 if self:isMBP() and StateController.role == 'master' and nearest_mob.index then
@@ -529,7 +547,7 @@ function ObserverObject:determineTarget(Actions, StateController)
             if mtf and mtf.index ~= hasCurrentTarget then
                 if self.entities.me.status == 1 then
                     local possible_target = MobObject:constructMob(hasCurrentTarget)
-                    if possible_target and possible_target:isValidTarget(self.entities.me.mob) and possible_target:isAllianceClaimed(claim_ids) then
+                    if possible_target and possible_target:isValidTarget(self.entities.me.mob) and possible_target:isAllianceClaimed(claim_ids) and not self:isIgnored(possible_target) then
                         notice(Utilities:printTime()..' setting mob to fight MTF ~= CT, VALID CT, Engaged')
                         notice(T(possible_target):tovstring())
                         self:setMobToFight(possible_target.id)
@@ -583,10 +601,20 @@ end
         [2] = 'Locus Wivre'
     }
 ]]
-function ObserverObject:getMArray(names, loose)
+function ObserverObject:getBaseMArray()
     local marray = windower.ffxi.get_mob_array()
-    local target_names = T{}
+    for i,v in pairs(marray) do
+        if v.id == 0 or v.index == 0 or v.status == 3 then
+            marray[i] = nil
+        end
+    end
+    return marray
+end
+
+function ObserverObject:filterMArray(marray, names, loose)
+    local result = {}
     local wildcard = loose or false
+    local target_names = T{}
 
     if type(names) == 'table' then
         for i,v in pairs(names) do
@@ -596,40 +624,38 @@ function ObserverObject:getMArray(names, loose)
         target_names = T{[1] = {['name'] = names and names:lower() or nil}}
     end
 
-    for i,v in pairs(marray) do
-        if v.id == 0 or v.index == 0 or v.status == 3 then
-            marray[i] = nil
-        else
-            marray[i] = v
-        end
-    end
-
-    if names then
+    if not names then
         for i,v in pairs(marray) do
-            local delete = false
-            if wildcard then
-                local temp_check = false
-                for _,val in pairs(target_names) do
-                    if v.name:lower():find(val.name:lower()) then
-                        temp_check = true
-                    end
-                end
-                if not temp_check then
-                    delete = true
-                end
-            else
-                if not target_names:with('name', v.name:lower()) then
-                    delete = true
-                end
-            end
+            result[i] = v
+        end
+        return result
+    end
 
-            if delete then
-                marray[i] = nil
+    for i,v in pairs(marray) do
+        local match = false
+        if wildcard then
+            for _,val in pairs(target_names) do
+                if v.name:lower():find(val.name:lower()) then
+                    match = true
+                    break
+                end
             end
+        else
+            if target_names:with('name', v.name:lower()) then
+                match = true
+            end
+        end
+        if match then
+            result[i] = v
         end
     end
 
-    return marray
+    return result
+end
+
+function ObserverObject:getMArray(names, loose)
+    local marray = self:getBaseMArray()
+    return self:filterMArray(marray, names, loose)
 end
 
 -------------------------------------------------
@@ -760,6 +786,8 @@ function ObserverObject:notifyMobDeath(id,data,modified,injected,blocked, Action
     if message_id == 6 or message_id == 20 then -- Dies or Falls
         local dead_mob = self.entities:getMobByIndex(target_index)
         if dead_mob then
+            local name = dead_mob.name
+            self.kill_counts[name] = (self.kill_counts[name] or 0) + 1
             self.entities:removeMob(dead_mob.id)
         end
 
