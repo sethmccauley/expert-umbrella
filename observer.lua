@@ -427,7 +427,6 @@ function ObserverObject:addToAggro(id)
     if not mob then return end
 
     local claim_ids = self.entities.claim_ids
-    if Utilities:arrayContains(self.ignore_list, mob.name) or Utilities:arrayContains(self.ignore_list, mob.index) then return end
     if mob.claim_id ~= 0 and not Utilities:arrayContains(claim_ids, mob.claim_id) then return end
 
     if not self.entities:isInIndex('aggro', mob.id) then
