@@ -188,6 +188,7 @@ Actions.condition_funcs = {
     },
     ['absent'] = {
         allowed_targets = S{'Self','Party','Pet'},
+        coerce_to = 'Self',
         func = function(ctx, value)
             if type(value) == 'string' and value:lower() == 'pet' then
                 return ctx.pet == nil
@@ -205,6 +206,7 @@ Actions.condition_funcs = {
     },
     ['present'] = {
         allowed_targets = S{'Self','Party','Pet'},
+        coerce_to = 'Self',
         func = function(ctx, value, modifier)
             if type(value) == 'string' and value:lower() == 'pet' then
                 if modifier then
@@ -225,6 +227,7 @@ Actions.condition_funcs = {
     },
     ['buffdurationremaininglt'] = {
         allowed_targets = S{'Self'},
+        coerce_to = 'Self',
         func = function(ctx, value, modifier)
             if not modifier or not value then return false end
             local buff_identifier = type(value) == 'string' and value:lower() or ''
@@ -234,6 +237,7 @@ Actions.condition_funcs = {
     },
     ['buffdurationremaininggt'] = {
         allowed_targets = S{'Self'},
+        coerce_to = 'Self',
         func = function(ctx, value, modifier)
             if not modifier or not value then return false end
             local buff_identifier = type(value) == 'string' and value:lower() or ''
@@ -264,6 +268,7 @@ Actions.condition_funcs = {
     },
     ['strengthlt'] = {
         allowed_targets = S{'Self','Party'},
+        coerce_to = 'Self',
         func = function(ctx, value, modifier)
             if not modifier then return false end
             return not ctx.self.player:hasBuff(value, modifier)
@@ -576,6 +581,18 @@ function Actions:handleChatPacket(data, whitelist, observer_obj)
 
     self:triggerAdHoc(adhoc_cmd, observer_obj)
 end
+function Actions:handleOutChatPacket(data, observer_obj)
+    if not Actions.packets then return end
+
+    local p = Actions.packets.parse('outgoing', data)
+    local message = p and p['Message']
+    if not message then return end
+
+    local adhoc_cmd = message:match('^%*(%w+)')
+    if not adhoc_cmd then return end
+
+    self:triggerAdHoc(adhoc_cmd, observer_obj)
+end
 
 function Actions:triggerAdHoc(cmd, observer_obj)
     if not self.adhoc_actions then return end
@@ -749,7 +766,6 @@ function Actions:inRange(full_ability, target_obj)
     end
     return false
 end
-
 -- ID-based range check using EntityStore for O(1) lookup
 function Actions:inRangeById(full_ability, target_id, observer_obj)
     if not self.player or not full_ability or not target_id then return false end

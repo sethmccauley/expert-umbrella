@@ -731,7 +731,7 @@ function ObserverObject:setActionDelay(action_type, override)
     self.next_action_ready = os.clock() + (override or Utilities._global_delays[action_type] or 2.0)
 end
 function ObserverObject:canAct()
-    return os.clock() >= self.next_action_ready
+    return (os.clock() >= self.next_action_ready)
 end
 
 -------------------------------------------------
