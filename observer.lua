@@ -106,7 +106,7 @@ function ObserverObject:setPartyMembers()
 end
 function ObserverObject:updateParty()
     self:setPartyMembers()
-    self.entities:updateClaimIds()
+    self.entities:syncParty()
 
     local remove_me = {}
     for name, _ in pairs(self.party_jobs) do
@@ -148,8 +148,8 @@ function ObserverObject:updatePartyJobs(id,data,modified,injected)
         sub_job = Utilities._job_ids[p['Sub job']]
     end
 
-    -- Update EntityStore
-    self.entities:updatePlayerJobByIndex(index, main_job, sub_job)
+    -- Update EntityStore (use ID for direct O(1) lookup)
+    self.entities:updatePlayerJob(p['ID'], main_job, sub_job)
 
     -- Keep legacy tracking for now (can remove later)
     self.party_jobs[resolved_name] = {['main'] = main_job, ['sub'] = sub_job}

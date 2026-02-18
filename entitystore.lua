@@ -13,7 +13,8 @@ function EntityStore:constructEntityStore(player_obj)
 
     -- Quick reference pointers (references into mobs/players, not copies)
     self.mtf = nil              -- Current mob to fight
-    self.me = player_obj        -- The Player.lua object (passed in)
+    self.me = player_obj        -- The Player.lua object (also stored in self.players)
+    self.players[player_obj.id] = player_obj
 
     -- Index sets for fast category queries (stores IDs, not objects)
     self.indexes = {
@@ -464,23 +465,28 @@ function EntityStore:syncParty()
     self:clearIndex('trusts')
     self:clearIndex('pets')
 
-    -- Clear old player entries that aren't self.me
-    local to_remove = {}
-    for id, player in pairs(self.players) do
-        if not player.self then
-            to_remove[#to_remove + 1] = id
+    if not party_table then
+        -- No party data, remove all non-self players
+        local to_remove = {}
+        for id, player in pairs(self.players) do
+            if not player.self then
+                to_remove[#to_remove + 1] = id
+            end
         end
-    end
-    for _, id in ipairs(to_remove) do
-        self.players[id] = nil
+        for _, id in ipairs(to_remove) do
+            self.players[id] = nil
+        end
+        return
     end
 
-    if not party_table then return end
+    -- Track which player IDs are still in the party
+    local seen_ids = {}
 
     for _, member in pairs(party_table) do
         if type(member) == 'table' and member.mob then
             local player = self:addPlayer(member)
             if player then
+                seen_ids[player.id] = true
                 -- Categorize using addToIndex for count tracking
                 if player.is_trust then
                     self:addToIndex('trusts', player.id)
@@ -490,6 +496,17 @@ function EntityStore:syncParty()
                 self:addToIndex('alliance', player.id)
             end
         end
+    end
+
+    -- Remove players no longer in the party (preserves those still present)
+    local to_remove = {}
+    for id, player in pairs(self.players) do
+        if not player.self and not seen_ids[id] then
+            to_remove[#to_remove + 1] = id
+        end
+    end
+    for _, id in ipairs(to_remove) do
+        self.players[id] = nil
     end
 
     self:updateClaimIds()

@@ -24,6 +24,9 @@ function PlayerObject:constructPlayer()
     self.details = player_obj
     self.buff_durations = T{}
 
+    self.main_job = Utilities._job_ids[player_obj.main_job_id]
+    self.sub_job = Utilities._job_ids[player_obj.sub_job_id]
+
     self.last_update_time = 0
 
     return self
@@ -85,6 +88,8 @@ function PlayerObject:update()
         self.mob = player_mob
         self.target_index = player_obj.target_index
         self.details = player_obj
+        self.main_job = Utilities._job_ids[player_obj.main_job_id]
+        self.sub_job = Utilities._job_ids[player_obj.sub_job_id]
     else
         self.id = player_mob.id
         self.index = player_mob.index

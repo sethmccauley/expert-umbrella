@@ -1295,14 +1295,19 @@ function Actions:testConditions(ability, source, target_id, observer_obj)
                 action_target = store_mob:getFlatCopy()
                 action_target_type = 'Enemy'
             else
-                -- Fall back to windower for targets not in the store
-                action_target = windower.ffxi.get_mob_by_id(target_id)
-                if action_target then
-                    -- Enrich party members with vitals
-                    if action_target.id == self.player.id then
+                -- Check if it's a party/alliance member in the player store
+                local store_player = entities:getPlayer(target_id)
+                if store_player then
+                    action_target = store_player.mob or windower.ffxi.get_mob_by_id(target_id)
+                    if store_player.self then
                         action_target = Utilities:shallowMerge(action_target, self.player.vitals)
                         action_target_type = 'Self'
+                    else
+                        action_target_type = 'Party'
                     end
+                else
+                    -- Fall back to windower for targets not in the store
+                    action_target = windower.ffxi.get_mob_by_id(target_id)
                 end
             end
         end
@@ -1543,6 +1548,9 @@ function Actions:runActions(StateController, observer_obj)
         return
     end
 
+    -- Prevent Spamming an Ability still waiting on recast but is enqueued
+    if not self:isRecastReady(ability) then return end
+
     -- Prevent spamming the last ability
     if not self.to_use:canSend(ability.name) then return end
 
@@ -1635,15 +1643,43 @@ function Actions:emptyToUse()
     self.to_use:clear()
 end
 
-function Actions:handleActionNotification(act, player, observer, statecontroller)
-    local actor = windower.ffxi.get_mob_by_id(act.actor_id)
+function Actions:handleActionNotification(action, player, observer, statecontroller)
+
+    local act = self.packets.parse('incoming', action)
+    local actor = windower.ffxi.get_mob_by_id(act['Actor'])
     local role = statecontroller.role or 'master'
 
     if actor and actor.id == self.player.id then
-        local category = act.category
-        local param = act.param
-        local recast = act.recast
-        local targets = act.targets
+        local category = act['Category']
+        local param = act['Param']
+        local recast = act['Recast']
+
+        local target_count = act['Target Count']
+        local targets = {}
+        for t = 1, target_count do
+            local target = {
+                id = act['Target '..t..' ID'],
+                actions = {},
+            }
+            local action_count = act['Target '..t..' Action Count']
+            for a = 1, action_count do
+                local pfx = 'Target '..t..' Action '..a..' '
+                target.actions[a] = {
+                    reaction = act[pfx..'Reaction'],
+                    animation = act[pfx..'Animation'],
+                    effect = act[pfx..'Effect'],
+                    stagger = act[pfx..'Stagger'],
+                    knockback = act[pfx..'Knockback'],
+                    param = act[pfx..'Param'],
+                    message = act[pfx..'Message'],
+                    unknown = act[pfx..'_unknown'],
+                    has_add_effect = act[pfx..'Has Add Effect'],
+                    has_spike_effect = act[pfx..'Has Spike Effect'],
+                }
+            end
+            targets[t] = target
+        end
+
         local paralyzed = targets[1].actions[1].message
         local para_flag = (paralyzed == 29 or paralyzed == 84)
 
