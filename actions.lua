@@ -1658,7 +1658,7 @@ function Actions:handleActionNotification(action, player, observer, statecontrol
     local category = act['Category']
 
     local target_count = act['Target Count'] or nil
-    local targets = {}
+    local targets = T{}
     if target_count then
         for t = 1, target_count do
             local target = {
@@ -1760,8 +1760,7 @@ function Actions:handleActionNotification(action, player, observer, statecontrol
     end
 
     -- Track aggro for both master and slave roles
-    if actor and actor.id ~= self.player.id then
-        local category = act.category
+    if actor and actor.id ~= self.player.id and targets then
         local party_ids = observer.entities:updateClaimIds()
         local party_pet_ids = observer.entities:getPetIds()
 
