@@ -18,7 +18,7 @@ function MobObject:constructMob(mob_or_index)
     self.details = mob
     self.valid_target = false
     self.alliance_claimed = false
-    self.claimed_at_time = 0
+    self.claimed_at_time = nil
     self.last_update_time = 0
     self.resonating = T{}
     self.resonating_step = 0
@@ -52,7 +52,7 @@ function MobObject:updateDetails()
 
     self.details = mob
 
-    if mob.claim_id and mob.claim_id > 0 and self.claimed_at_time == 0 then
+    if mob.claim_id and mob.claim_id > 0 and not self.claimed_at_time then
         self.claimed_at_time = os.clock()
     end
 

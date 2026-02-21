@@ -383,7 +383,7 @@ function ObserverObject:findTargets(mob_table_list, navigation_obj)
                         local existing = va.id and self.entities:getMob(va.id)
                         if existing and self.entities:isInIndex('targets', va.id) then
                             existing:updateDetails()
-                            if existing:isTrulyClaimed(claim_ids) and existing.claimed_at_time == 0 then
+                            if existing:isTrulyClaimed(claim_ids) and not existing.claimed_at_time then
                                 existing.claimed_at_time = os.clock()
                             end
                         elseif not self.entities:isInIndex('targets', va.id) then
@@ -404,7 +404,7 @@ function ObserverObject:findTargets(mob_table_list, navigation_obj)
                         local existing = self.entities:getMob(mob.id)
                         if existing and self.entities:isInIndex('targets', mob.id) then
                             existing:updateDetails()
-                            if existing:isTrulyClaimed(claim_ids) and existing.claimed_at_time == 0 then
+                            if existing:isTrulyClaimed(claim_ids) and not existing.claimed_at_time then
                                 existing.claimed_at_time = os.clock()
                             end
                         end

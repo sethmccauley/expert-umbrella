@@ -1314,15 +1314,16 @@ function Actions:testConditions(ability, source, target_id, observer_obj)
     end
 
     -- Combat delay checks for enemy targets
-    if action_target_type == 'Enemy' and action_target then
+    if action_target_type == 'Enemy' and action_target and self.combat_actions_delay > 0 then
         local claimed_time = action_target.claimed_at_time or (entities.mtf and entities.mtf.claimed_at_time)
-        if claimed_time then
-            if self.combat_actions_delay > 0 and (os.clock() - claimed_time) < self.combat_actions_delay then
-                return false
-            end
-            if ability.prefix == '/pos' and (claimed_time == 0 or (os.clock() - claimed_time) < 1.5) then
-                return false
-            end
+        if not claimed_time then
+            return false
+        end
+        if (os.clock() - claimed_time) < self.combat_actions_delay then
+            return false
+        end
+        if ability.prefix == '/pos' and (os.clock() - claimed_time) < 1.5 then
+            return false
         end
     end
 
@@ -1339,6 +1340,9 @@ function Actions:testConditions(ability, source, target_id, observer_obj)
         -- mob_obj will be set per-condition based on condition's target
         mob_obj = action_target,
     }
+
+    local condition_operator = 'and'
+    if ability.condition_operator then condition_operator = ability.condition_operator:lower() end
 
     for _, v in pairs(conditions) do
         local cond = v.condition
@@ -1393,9 +1397,11 @@ function Actions:testConditions(ability, source, target_id, observer_obj)
         ctx.target_type = effective_target_type
         ctx.effective_target_id = effective_target and effective_target.id or target_id
         local decision = cond_entry.func(ctx, value, modifier)
-        if decision == false then return false end
+        if condition_operator == 'or' and decision == true then return true end
+        if condition_operator ~= 'or' and decision == false then return false end
     end
 
+    if condition_operator == 'or' then return false end
     return true
 end
 
@@ -1649,13 +1655,11 @@ function Actions:handleActionNotification(action, player, observer, statecontrol
     local actor = windower.ffxi.get_mob_by_id(act['Actor'])
     local role = statecontroller.role or 'master'
 
-    if actor and actor.id == self.player.id then
-        local category = act['Category']
-        local param = act['Param']
-        local recast = act['Recast']
+    local category = act['Category']
 
-        local target_count = act['Target Count']
-        local targets = {}
+    local target_count = act['Target Count'] or nil
+    local targets = {}
+    if target_count then
         for t = 1, target_count do
             local target = {
                 id = act['Target '..t..' ID'],
@@ -1679,6 +1683,11 @@ function Actions:handleActionNotification(action, player, observer, statecontrol
             end
             targets[t] = target
         end
+    end
+
+    if actor and actor.id == self.player.id then
+        local param = act['Param']
+        local recast = act['Recast']
 
         local paralyzed = targets[1].actions[1].message
         local para_flag = (paralyzed == 29 or paralyzed == 84)
@@ -1753,7 +1762,6 @@ function Actions:handleActionNotification(action, player, observer, statecontrol
     -- Track aggro for both master and slave roles
     if actor and actor.id ~= self.player.id then
         local category = act.category
-        local targets = T(act.targets)
         local party_ids = observer.entities:updateClaimIds()
         local party_pet_ids = observer.entities:getPetIds()
 
