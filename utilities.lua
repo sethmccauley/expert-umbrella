@@ -77,7 +77,22 @@ Utilities._skillchains = L{
 }
 Utilities._slot_map = T{'main','sub','range','ammo','head','body','hands','legs','feet','neck','waist','left_ear', 'right_ear', 'left_ring', 'right_ring','back'}
 Utilities._server_content = T{
-    names = {'Azi Dahaka','Naga Raja','Quetzalcoatl','Mireu'},
+    names = S{
+        "Mireu", "Azi Dahaka", "Naga Raja", "Quetzalcoatl",
+        "Azi Dahaka's Dragon", "Naga Raja's Lamia", "Quetzalcoatl's Sibilus",
+        "Academic's", "Agoge", "Anchorite's", "Ankusa",
+        "Arcadian", "Archmage's", "Assimilator's", "Atrophy",
+        "Bagua", "Bihu", "Brioso", "Caballarius",
+        "Convoker's", "Fallen's", "Foire", "Futhark",
+        "Geomancy", "Glyphic", "Hachiya", "Hesychast's",
+        "Horos", "Ignominy", "Laksamana's", "Lanun",
+        "Luhlaza", "Maxixi", "Mochizuki", "Orion",
+        "Pedagogy", "Piety", "Pillager's", "Pitre",
+        "Plunderer's", "Pteroslaver", "Pummeler's", "Reverence",
+        "Runeist", "Sakonji", "Spaekona's", "Theophany",
+        "Totemic", "Vishap", "Vitiation", "Wakido",
+        "Ultima Forerunner", "Omega Forerunner", "Omega's Bit"
+    },
     zones = {}
 }
 Utilities._trust_job_list = T{
@@ -234,7 +249,7 @@ Utilities._global_delays = T{
     ['ja'] = 1.0,
     ['ws'] = 2,
     ['item'] = 2.5,
-    ['ra'] = 2,
+    ['ra'] = 0.82, -- This ... feels incredibly wrong.
     ['engage'] = 2,
 }
 Utilities._statuses = {
@@ -306,6 +321,11 @@ Utilities._tracked_debuffs = S{
     'helix', 'magic accuracy down', 'magic attack down', 'plague', 'disease',
     'str down', 'dex down', 'vit down', 'agi down', 'int down', 'mnd down', 'chr down',
     'bind', 'weight', 'addle', 'nocturne', 'requiem',
+}
+Utilities._spell_mapping_cooldowns = {
+    [1]  = 'cure',[2]  = 'cure',[3]  = 'cure',[4]  = 'cure',[5]  = 'cure',[6]  = 'cure',[7]  = 'curaga',
+    [8]  = 'curaga',[9]  = 'curaga',[10] = 'curaga',[11] = 'curaga',
+    [93] = 'cura',
 }
 
 function Utilities:constructUtilities() 

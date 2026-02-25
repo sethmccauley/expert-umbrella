@@ -29,6 +29,8 @@ function PlayerObject:constructPlayer()
 
     self.last_update_time = 0
 
+    self.mapped_cooldowns = {}
+
     return self
 end
 
@@ -44,6 +46,13 @@ function PlayerObject:constructPartyPC(member)
     self.status = member.mob.status
     self.is_trust = (member.mob.spawn_type == 14)
     self.mob = member.mob
+
+    self.hp = member.hp
+    self.mp = member.mp
+    self.tp = member.tp
+    self.hpp = member.hpp
+    self.mpp = member.mpp
+    self.mapped_cooldowns = {}
 
     -- Job tracking (populated via packet 0x0DF)
     self.main_job = nil     -- {english, short} from Utilities._job_ids

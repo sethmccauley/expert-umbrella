@@ -127,17 +127,19 @@ Actions.condition_funcs = {
     ['missinghplt'] = {
         allowed_targets = S{'Self','Party','Alliance'},
         func = function(ctx, value)
+            if not ctx.mob_obj or not ctx.mob_obj.hp or not ctx.mob_obj.hpp or ctx.mob_obj.hpp == 0 then return false end
             local missing_hp = math.floor(ctx.mob_obj.hp * (100 - ctx.mob_obj.hpp) / ctx.mob_obj.hpp)
             local threshold = tonumber(value)
-            return missing_hp and threshold and (missing_hp < value)
+            return threshold and (missing_hp < threshold)
         end
     },
     ['missinghpgt'] = {
         allowed_targets = S{'Self','Party','Alliance'},
         func = function(ctx, value)
+            if not ctx.mob_obj or not ctx.mob_obj.hp or not ctx.mob_obj.hpp or ctx.mob_obj.hpp == 0 then return false end
             local missing_hp = math.floor(ctx.mob_obj.hp * (100 - ctx.mob_obj.hpp) / ctx.mob_obj.hpp)
             local threshold = tonumber(value)
-            return missing_hp and threshold and (missing_hp > value)
+            return threshold and (missing_hp > threshold)
         end
     },
     ['mpplt'] = {
@@ -445,6 +447,13 @@ function Actions:processAbilities(table)
         else
             table[i]['res'] = self:resolveAbility(v)
         end
+
+        -- Pre-resolve variants
+        if v.variants then
+            for j, upgrade in ipairs(v.variants) do
+                upgrade.res = self:resolveAbility({prefix = v.prefix, name = upgrade.name, target = v.target, target_type_string = v.target_type_string})
+            end
+        end
     end
     return table
 end
@@ -659,6 +668,7 @@ function Actions:handleState(StateController, observer_obj)
     observer_obj:validateTargetsTable()
     observer_obj:validateAggroTable()
     self.player:update()
+    observer_obj.entities:syncPartyVitals()
 
     if StateController.state == 'combat' then
         self:handleCombat(StateController, observer_obj)
@@ -1001,10 +1011,36 @@ function Actions:resolveAbility(raw_ability)
 
     if next(action) ~= nil then
         local action_copy =  Utilities:shallowCopy(action)
+        -- Trying to save space
         action_copy.ja = nil
+        action_copy.jal = nil
         return action_copy
     end
     return false
+end
+function Actions:resolveVariant(ability, list_type, target_id, observer_obj)
+    if not ability.variants then return nil end
+    for _, variant in ipairs(ability.variants) do
+        if variant.res and self:testConditions({
+                conditions = variant.conditions,
+                prefix = ability.prefix,
+                name = variant.name,
+                res = variant.res,
+                target = ability.target,
+                target_type_string = ability.target_type_string
+            }, list_type, target_id, observer_obj)
+        then
+            if self:isRecastReady({res = variant.res, prefix = ability.prefix}) then
+                local swapped = Utilities:shallowCopy(ability)
+                swapped.name = variant.name
+                swapped.res = variant.res
+                swapped.priority = variant.priority
+                return swapped
+            end
+            return false
+        end
+    end
+    return nil
 end
 
 function Actions:resolveActionTargetType(target_string)
@@ -1225,7 +1261,14 @@ function Actions:testActions(list, ltype, observer_obj)
                     elseif ability.conditions and not self:testConditions(ability, list_type, target_info.id, observer_obj) then
                         -- Skip (conditions failed)
                     else
-                        local ability_copy = Utilities:shallowCopy(ability)
+                        local ability_copy
+                        if ability.variants then
+                            ability_copy = self:resolveVariant(ability, list_type, target_info.id, observer_obj)
+                            if ability_copy == false then break end
+                        end
+                        if not ability_copy then
+                            ability_copy = Utilities:shallowCopy(ability)
+                        end
                         ability_copy.targeting = target_info.id
                         ability_copy.target_type_string = target_info.target_type
                         ability_copy.checks = {
@@ -1252,7 +1295,14 @@ function Actions:testActions(list, ltype, observer_obj)
                 elseif not self:testConditions(ability, list_type, target_id, observer_obj) then
                     -- Skip (conditions failed)
                 else
-                    local ability_copy = Utilities:shallowCopy(ability)
+                    local ability_copy
+                    if ability.variants then
+                        ability_copy = self:resolveVariant(ability, list_type, target_id, observer_obj)
+                        if ability_copy == false then break end
+                    end
+                    if not ability_copy then
+                        ability_copy = Utilities:shallowCopy(ability)
+                    end
                     ability_copy.targeting = target_id
                     ability_copy.target_type_string = target_type
                     if ability.prefix == '/ra' and not Utilities:arrayContains(self.once_per_combat, ability) then
@@ -1298,11 +1348,12 @@ function Actions:testConditions(ability, source, target_id, observer_obj)
                 -- Check if it's a party/alliance member in the player store
                 local store_player = entities:getPlayer(target_id)
                 if store_player then
-                    action_target = store_player.mob or windower.ffxi.get_mob_by_id(target_id)
+                    local base_mob = store_player.mob or windower.ffxi.get_mob_by_id(target_id)
                     if store_player.self then
-                        action_target = Utilities:shallowMerge(action_target, self.player.vitals)
+                        action_target = Utilities:shallowMerge(base_mob, self.player.vitals)
                         action_target_type = 'Self'
                     else
+                        action_target = Utilities:shallowMerge(base_mob, {hp = store_player.hp, mp = store_player.mp, tp = store_player.tp, hpp = store_player.hpp, mpp = store_player.mpp})
                         action_target_type = 'Party'
                     end
                 else
@@ -1324,6 +1375,17 @@ function Actions:testConditions(ability, source, target_id, observer_obj)
         end
         if ability.prefix == '/pos' and (os.clock() - claimed_time) < 1.5 then
             return false
+        end
+    end
+
+    -- Check mapped cooldowns (e.g. cure family) on target player
+    if ability.res and target_id then
+        local mapping = Utilities._spell_mapping_cooldowns[ability.res.id]
+        if mapping then
+            local target_player = entities:getPlayer(target_id)
+            if target_player and target_player.mapped_cooldowns and target_player.mapped_cooldowns[mapping] and os.clock() < target_player.mapped_cooldowns[mapping] then
+                return false
+            end
         end
     end
 
@@ -1397,6 +1459,7 @@ function Actions:testConditions(ability, source, target_id, observer_obj)
         ctx.target_type = effective_target_type
         ctx.effective_target_id = effective_target and effective_target.id or target_id
         local decision = cond_entry.func(ctx, value, modifier)
+
         if condition_operator == 'or' and decision == true then return true end
         if condition_operator ~= 'or' and decision == false then return false end
     end
@@ -1561,7 +1624,7 @@ function Actions:runActions(StateController, observer_obj)
     if not self.to_use:canSend(ability.name) then return end
 
     -- Ready to execute
-    local requires_stationary = ability.prefix == '/item' or self.magic_castable_prefixes:contains(ability.prefix)
+    local requires_stationary = ability.prefix == '/item' or ability.prefix == '/ra' or self.magic_castable_prefixes:contains(ability.prefix)
     if requires_stationary then
         observer_obj:setCasting()
         windower.ffxi.run(false)
@@ -1585,6 +1648,13 @@ function Actions:executeAbility(ability, resolved_ability, target, observer_obj,
         self:setLastSpell(ability)
         self:sendCommand(command_string)
         observer_obj:setActionDelay('spell', 15)
+        local mapping = Utilities._spell_mapping_cooldowns[resolved_ability.id]
+        if mapping then
+            local target_player = observer_obj.entities:getPlayer(ability.targeting)
+            if target_player then
+                target_player.mapped_cooldowns[mapping] = os.clock() + 5
+            end
+        end
     elseif prefix == '/pet' then
         if resolved_ability.type and resolved_ability.type == 'Monster' then
             self:setLastMonsterTime()
@@ -1599,7 +1669,7 @@ function Actions:executeAbility(ability, resolved_ability, target, observer_obj,
         observer_obj:setActionDelay('ws')
     elseif prefix == '/ra' then
         self:sendCommand('input '..prefix..' '..ability.targeting)
-        observer_obj:setActionDelay('ra')
+        observer_obj:setActionDelay('ra', 5)
     elseif prefix == '/pos' then
         if target and target.x and target.y then
             local me = self.player.mob
@@ -1697,6 +1767,11 @@ function Actions:handleActionNotification(action, player, observer, statecontrol
             observer:setLastAttackRoundTime()
         end
 
+        if category == 2 then -- Ranged Attack Finish
+            observer:setActionDelay('ra')
+            notice('Finished RA - Seconds until ready : '..observer.next_action_ready - os.clock())
+        end
+
         --notice('(Targ.Act.Msg) Category: '..category..'; TAM: '..paralyzed..';')
         if category == 6 or category == 14 then  -- Finished JA
             if not para_flag then
@@ -1755,6 +1830,16 @@ function Actions:handleActionNotification(action, player, observer, statecontrol
                 self.to_use:removeByResId(param)
                 observer:setActionDelay('spell')
                 coroutine.schedule(function() observer:forceUnbusy() end, 2)
+
+                local mapping = Utilities._spell_mapping_cooldowns[param]
+                if mapping then
+                    for _, target in pairs(targets) do
+                        local target_player = observer.entities:getPlayer(target.id)
+                        if target_player and target_player.mapped_cooldowns then
+                            target_player.mapped_cooldowns[mapping] = os.clock() + 0.6
+                        end
+                    end
+                end
             end
         end
     end

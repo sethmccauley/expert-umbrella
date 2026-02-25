@@ -485,6 +485,13 @@ function EntityStore:syncParty()
     for _, member in pairs(party_table) do
         if type(member) == 'table' and member.mob then
             local player = self:addPlayer(member)
+            if player and not player.self then
+                player.hp = member.hp
+                player.mp = member.mp
+                player.tp = member.tp
+                player.hpp = member.hpp
+                player.mpp = member.mpp
+            end
             if player then
                 seen_ids[player.id] = true
                 -- Categorize using addToIndex for count tracking
@@ -510,6 +517,22 @@ function EntityStore:syncParty()
     end
 
     self:updateClaimIds()
+end
+function EntityStore:syncPartyVitals()
+    local party_table = windower.ffxi.get_party()
+    if not party_table then return end
+    for _, member in pairs(party_table) do
+        if type(member) == 'table' and member.mob then
+            local player = self.players[member.mob.id]
+            if player and not player.self then
+                player.hp = member.hp
+                player.mp = member.mp
+                player.tp = member.tp
+                player.hpp = member.hpp
+                player.mpp = member.mpp
+            end
+        end
+    end
 end
 function EntityStore:syncAggro(aggro_entries)
     -- aggro_entries is expected to be keyed by index: { [index] = {name, index, obj}, ... }
